@@ -1,0 +1,37 @@
+# Node
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-lock.yaml
+*.log
+
+# Build
+.next
+out
+dist
+coverage
+build
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Misc
+.DS_Store
+*.pem
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Clone jobs (temporary files)
+public/clone-jobs/*
+!public/clone-jobs/.gitkeep
+
+
+

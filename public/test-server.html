@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Servidor de Teste para FunilSpy</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        p {
+            font-size: 1.1rem;
+            line-height: 1.6;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .links {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 30px;
+        }
+        .link-card {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            transition: transform 0.2s, background 0.2s;
+            cursor: pointer;
+        }
+        .link-card:hover {
+            transform: translateY(-5px);
+            background: rgba(255, 255, 255, 0.3);
+        }
+        .link-card a {
+            color: #fff;
+            text-decoration: none;
+            font-weight: 600;
+            display: block;
+        }
+        .status {
+            background: rgba(76, 175, 80, 0.3);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            margin-top: 20px;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>✅ Servidor de Teste</h1>
+        <p>Este arquivo HTML está funcionando perfeitamente!</p>
+        <p>Use este servidor para testar o FunilSpy scanner.</p>
+
+        <div class="links">
+            <div class="link-card">
+                <a href="/admin">Admin Panel</a>
+            </div>
+            <div class="link-card">
+                <a href="/login">Login Page</a>
+            </div>
+            <div class="link-card">
+                <a href="/dashboard">Dashboard</a>
+            </div>
+            <div class="link-card">
+                <a href="/api">API Endpoint</a>
+            </div>
+            <div class="link-card">
+                <a href="/config">Config</a>
+            </div>
+            <div class="link-card">
+                <a href="/checkout">Checkout</a>
+            </div>
+            <div class="link-card">
+                <a href="/thank-you">Thank You</a>
+            </div>
+            <div class="link-card">
+                <a href="/lp">Landing Page</a>
+            </div>
+        </div>
+
+        <div class="status">
+            📡 Servidor ativo | Status: 200 OK
+        </div>
+    </div>
+
+    <script>
+        // Simular algumas respostas diferentes para teste
+        const path = window.location.pathname;
+        
+        if (path === '/admin') {
+            document.body.innerHTML = '<h1 style="padding: 50px; color: #c62828;">403 Forbidden</h1>';
+        } else if (path === '/login') {
+            document.body.innerHTML = '<h1 style="padding: 50px; color: #2e7d32;">200 OK - Login</h1>';
+        } else if (path === '/dashboard') {
+            document.body.innerHTML = '<h1 style="padding: 50px; color: #2e7d32;">200 OK - Dashboard</h1>';
+        }
+    </script>
+</body>
+</html>
+
+

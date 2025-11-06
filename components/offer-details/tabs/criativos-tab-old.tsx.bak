@@ -1,0 +1,423 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { toast } from 'sonner'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { Plus, FileImage } from 'lucide-react'
+import {
+  saCreateCreativeOriginal,
+  createCreativeModeled,
+  deleteCreativeOriginal,
+  deleteCreativeModeled,
+} from '@/app/actions/offers'
+import { Button } from '@/components/ui/button'
+import { CreativeCard } from '@/components/ui/creative-card'
+import { PreviewLightbox } from '@/components/ui/preview-lightbox'
+import { DropZone } from '@/components/ui/drop-zone'
+import type { OfferCreativeOriginal, OfferCreativeModeled } from '@/lib/types'
+
+interface CriativosTabProps {
+  offerId: string
+}
+
+// Wrapper sortable para os cards
+function SortableCreativeCard(props: {
+  id: string
+  name: string
+  fileUrl?: string
+  onPreview: () => void
+  onDelete: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: props.id,
+  })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <CreativeCard {...props} draggable />
+    </div>
+  )
+}
+
+export function CriativosTab({ offerId }: CriativosTabProps) {
+  const supabase = createClient()
+  const [originais, setOriginais] = useState<OfferCreativeOriginal[]>([])
+  const [modelados, setModelados] = useState<OfferCreativeModeled[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showOriginalUpload, setShowOriginalUpload] = useState(false)
+  const [showModeledUpload, setShowModeledUpload] = useState(false)
+  const [previewFile, setPreviewFile] = useState<{
+    url: string
+    name: string
+    type: 'image' | 'video' | 'pdf' | 'other'
+  } | null>(null)
+
+  // Drag & drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
+
+  useEffect(() => {
+    loadCreatives()
+  }, [offerId])
+
+  const loadCreatives = async () => {
+    try {
+      setLoading(true)
+      const [originalRes, modeledRes] = await Promise.all([
+        supabase
+          .schema('offers')
+          .from('offer_creatives_original')
+          .select('*')
+          .eq('offer_id', offerId)
+          .order('created_at', { ascending: false }),
+        supabase
+          .schema('offers')
+          .from('offer_creatives_modeled')
+          .select('*')
+          .eq('offer_id', offerId)
+          .order('created_at', { ascending: false }),
+      ])
+
+      if (originalRes.data) setOriginais(originalRes.data as OfferCreativeOriginal[])
+      if (modeledRes.data) setModelados(modeledRes.data as OfferCreativeModeled[])
+    } catch (err) {
+      console.error('[CRIATIVOS_LOAD]', err)
+      toast.error('⚠️ Erro ao carregar criativos')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Upload de arquivos (originais)
+  const handleOriginalUpload = async (files: File[]) => {
+    toast.promise(
+      Promise.all(
+        files.map(async (file) => {
+          // Aqui você faria o upload real para o Supabase Storage
+          // Por enquanto, apenas simulando
+          const dto = {
+            ref_name: file.name,
+            format: file.type.includes('video') ? 'Vídeo' : 'Imagem',
+            preview_url: URL.createObjectURL(file),
+          }
+          return await saCreateCreativeOriginal(offerId, dto)
+        })
+      ),
+      {
+        loading: 'Enviando arquivos...',
+        success: (results) => {
+          loadCreatives()
+          setShowOriginalUpload(false)
+          return `✅ ${results.length} arquivo(s) enviado(s)`
+        },
+        error: '⚠️ Falha ao enviar',
+      }
+    )
+  }
+
+  // Upload de arquivos (modelados)
+  const handleModeledUpload = async (files: File[]) => {
+    toast.promise(
+      Promise.all(
+        files.map(async (file) => {
+          const dto = {
+            internal_name: file.name,
+            asset_url: URL.createObjectURL(file),
+          }
+          return await createCreativeModeled(offerId, dto)
+        })
+      ),
+      {
+        loading: 'Enviando arquivos...',
+        success: (results) => {
+          loadCreatives()
+          setShowModeledUpload(false)
+          return `✅ ${results.length} arquivo(s) enviado(s)`
+        },
+        error: '⚠️ Falha ao enviar',
+      }
+    )
+  }
+
+  // Preview de arquivo
+  const handlePreview = (fileUrl: string, fileName: string) => {
+    const ext = fileName.split('.').pop()?.toLowerCase()
+    let type: 'image' | 'video' | 'pdf' | 'other' = 'other'
+
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext || '')) type = 'image'
+    else if (['mp4', 'mov', 'avi', 'webm'].includes(ext || '')) type = 'video'
+    else if (ext === 'pdf') type = 'pdf'
+
+    setPreviewFile({ url: fileUrl, name: fileName, type })
+  }
+
+  // Excluir com desfazer (originais)
+  const handleDeleteOriginal = (id: string) => {
+    const item = originais.find((o) => o.id === id)
+    if (!item) return
+
+    // Remover otimisticamente
+    setOriginais((prev) => prev.filter((o) => o.id !== id))
+
+    toast('Criativo excluído', {
+      duration: 5000,
+      action: {
+        label: 'Desfazer',
+        onClick: () => {
+          setOriginais((prev) => [...prev, item])
+          toast.info('Ação desfeita')
+        },
+      },
+    })
+
+    // Excluir de verdade após 5s
+    setTimeout(async () => {
+      const result = await deleteCreativeOriginal(offerId, id)
+      if (!result.success) {
+        toast.error('⚠️ Erro ao excluir')
+        setOriginais((prev) => [...prev, item])
+      }
+    }, 5100)
+  }
+
+  // Excluir com desfazer (modelados)
+  const handleDeleteModeled = (id: string) => {
+    const item = modelados.find((m) => m.id === id)
+    if (!item) return
+
+    setModelados((prev) => prev.filter((m) => m.id !== id))
+
+    toast('Criativo excluído', {
+      duration: 5000,
+      action: {
+        label: 'Desfazer',
+        onClick: () => {
+          setModelados((prev) => [...prev, item])
+          toast.info('Ação desfeita')
+        },
+      },
+    })
+
+    setTimeout(async () => {
+      const result = await deleteCreativeModeled(offerId, id)
+      if (!result.success) {
+        toast.error('⚠️ Erro ao excluir')
+        setModelados((prev) => [...prev, item])
+      }
+    }, 5100)
+  }
+
+  // Reordenar (drag & drop)
+  const handleDragEnd = (event: DragEndEvent, isOriginal: boolean) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+
+    if (isOriginal) {
+      setOriginais((items) => {
+        const oldIndex = items.findIndex((i) => i.id === active.id)
+        const newIndex = items.findIndex((i) => i.id === over.id)
+        return arrayMove(items, oldIndex, newIndex)
+      })
+    } else {
+      setModelados((items) => {
+        const oldIndex = items.findIndex((i) => i.id === active.id)
+        const newIndex = items.findIndex((i) => i.id === over.id)
+        return arrayMove(items, oldIndex, newIndex)
+      })
+    }
+
+    // Aqui você persistiria a nova ordem no backend
+    toast.success('✅ Ordem atualizada')
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center">
+        <div className="text-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-white/20 border-t-[#F5C542]" />
+          <p className="mt-3 text-sm text-white/60">Carregando criativos...</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Layout horizontal: Originais | Modelados */}
+      <div className="grid gap-6 md:grid-cols-2">
+        {/* Coluna: Criativos Originais */}
+        <div className="space-y-4">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-white/90">Criativos Originais</h3>
+              <p className="text-sm text-white/50">{originais.length} item(ns)</p>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => setShowOriginalUpload(!showOriginalUpload)}
+              className="gap-2 rounded-xl border border-white/15 bg-white/10 hover:bg-white/15"
+            >
+              <Plus className="h-4 w-4" />
+              Adicionar
+            </Button>
+          </div>
+
+          {/* Upload Zone */}
+          {showOriginalUpload && (
+            <DropZone
+              onFilesAdded={handleOriginalUpload}
+              accept="image/*,video/*,.pdf"
+              multiple
+            />
+          )}
+
+          {/* Grid de Cards */}
+          {originais.length > 0 ? (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={(e) => handleDragEnd(e, true)}
+            >
+              <SortableContext
+                items={originais.map((o) => o.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="grid grid-cols-2 gap-4">
+                  {originais.map((criativo) => (
+                    <SortableCreativeCard
+                      key={criativo.id}
+                      id={criativo.id}
+                      name={criativo.ref_name}
+                      fileUrl={criativo.preview_url}
+                      onPreview={() =>
+                        criativo.preview_url &&
+                        handlePreview(criativo.preview_url, criativo.ref_name)
+                      }
+                      onDelete={() => handleDeleteOriginal(criativo.id)}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          ) : (
+            !showOriginalUpload && (
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/15 bg-white/5 p-12 text-center">
+                <FileImage className="h-12 w-12 text-white/30" />
+                <h4 className="mt-4 font-medium text-white/70">Nenhum criativo original</h4>
+                <p className="mt-1 text-sm text-white/40">
+                  Clique em &quot;Adicionar&quot; para enviar arquivos
+                </p>
+              </div>
+            )
+          )}
+        </div>
+
+        {/* Coluna: Criativos Modelados */}
+        <div className="space-y-4">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-white/90">Criativos Modelados</h3>
+              <p className="text-sm text-white/50">{modelados.length} item(ns)</p>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => setShowModeledUpload(!showModeledUpload)}
+              className="gap-2 rounded-xl border border-white/15 bg-white/10 hover:bg-white/15"
+            >
+              <Plus className="h-4 w-4" />
+              Adicionar
+            </Button>
+          </div>
+
+          {/* Upload Zone */}
+          {showModeledUpload && (
+            <DropZone
+              onFilesAdded={handleModeledUpload}
+              accept="image/*,video/*,.pdf,.zip"
+              multiple
+            />
+          )}
+
+          {/* Grid de Cards */}
+          {modelados.length > 0 ? (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={(e) => handleDragEnd(e, false)}
+            >
+              <SortableContext
+                items={modelados.map((m) => m.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="grid grid-cols-2 gap-4">
+                  {modelados.map((criativo) => (
+                    <SortableCreativeCard
+                      key={criativo.id}
+                      id={criativo.id}
+                      name={criativo.internal_name}
+                      fileUrl={criativo.asset_url}
+                      onPreview={() =>
+                        criativo.asset_url &&
+                        handlePreview(criativo.asset_url, criativo.internal_name)
+                      }
+                      onDelete={() => handleDeleteModeled(criativo.id)}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          ) : (
+            !showModeledUpload && (
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/15 bg-white/5 p-12 text-center">
+                <FileImage className="h-12 w-12 text-white/30" />
+                <h4 className="mt-4 font-medium text-white/70">Nenhum criativo modelado</h4>
+                <p className="mt-1 text-sm text-white/40">
+                  Modele a partir dos originais ou adicione novos
+                </p>
+              </div>
+            )
+          )}
+        </div>
+      </div>
+
+      {/* Preview Lightbox */}
+      {previewFile && (
+        <PreviewLightbox
+          fileUrl={previewFile.url}
+          fileName={previewFile.name}
+          fileType={previewFile.type}
+          onClose={() => setPreviewFile(null)}
+        />
+      )}
+    </div>
+  )
+}

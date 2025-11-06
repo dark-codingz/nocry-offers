@@ -1,0 +1,99 @@
+/* ===== TEMA NoCry - Paleta Harmônica (Cinzas Escuros + Dourado) ===== */
+
+:root {
+  /* Base — cinzas escuros (confortáveis) */
+  --bg: #121418;
+  --surface: #161a20;
+  --card: #1b2128;
+  --border: #2a3038;
+  --fg: #E8EAED;
+  --fg-dim: #B3B7BF;
+  --muted: rgba(255, 255, 255, 0.05);
+
+  /* Brand — dourado elegante */
+  --gold: #D4AF37;
+  --gold-press: #B8922B;
+
+  /* Ring/Focus neutro */
+  --ring: #8A8F99;
+
+  /* Compatibilidade com tokens antigos (manter temporariamente) */
+  --nc-bg: var(--bg);
+  --nc-bg-elev: var(--surface);
+  --nc-card: var(--card);
+  --nc-border: var(--border);
+  --nc-fg: var(--fg);
+  --nc-fg-dim: var(--fg-dim);
+  --nc-gold: var(--gold);
+  --nc-gold-press: var(--gold-press);
+  --nc-cyan: var(--ring); /* Não usar ciano, mas manter compatibilidade */
+}
+
+.dark {
+  color-scheme: dark;
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --card-bg: var(--card);
+  --border-color: var(--border);
+  --muted-bg: var(--muted);
+  --primary: var(--gold);
+  --primary-foreground: #101216;
+  --ring-color: var(--ring);
+}
+
+/* Utilitários Glass (atualizados) */
+.nc-glass {
+  background: var(--card);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.55);
+}
+
+.nc-glass-hover:hover {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+/* Focus ring */
+.nc-focus-ring:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Card depth layers */
+.nc-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.55);
+  transition: box-shadow 0.3s ease, transform 0.2s ease;
+}
+
+.nc-card:hover {
+  box-shadow: 0 12px 36px -20px rgba(0, 0, 0, 0.65);
+  transform: translateY(-2px);
+}
+
+/* Tipografia */
+.nc-title {
+  font-family: 'Manrope', sans-serif;
+  letter-spacing: 0.02em;
+  font-weight: 700;
+}
+
+.nc-button {
+  font-family: 'Manrope', sans-serif;
+  letter-spacing: 0.01em;
+}
+
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+

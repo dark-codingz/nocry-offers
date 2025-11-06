@@ -1,0 +1,61 @@
+'use server'
+
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
+import { redirect } from 'next/navigation'
+import { getServerClient } from '@/lib/supabase/server'
+import { getSessionUserAndOrg } from '@/lib/auth'
+import { createOfferSchema, type CreateOfferFormData } from '@/lib/validations/offer'
+
+export async function createOffer(data: CreateOfferFormData) {
+  try {
+    // Validar dados
+    const validatedData = createOfferSchema.parse(data)
+
+    // Obter userId e orgId automaticamente
+    const { userId, orgId } = await getSessionUserAndOrg()
+
+    const supabase = await getServerClient()
+
+    // Montar payload com valores automáticos
+    const payload = {
+      org_id: orgId,
+      owner_user_id: userId,
+      name: validatedData.name,
+      country: validatedData.country,
+      niche: validatedData.niche || null,
+      status: 'Em análise', // FORÇADO
+      ad_library_url: validatedData.ad_library_url,
+      original_funnel_url: validatedData.original_funnel_url,
+      spy_tool_url: validatedData.spy_tool_url || null,
+      notes: validatedData.notes || null,
+      visibility: validatedData.visibility,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+
+    const { error } = await supabase.schema('offers').from('offers').insert([payload])
+
+    if (error) {
+      console.error('Erro ao criar oferta:', error)
+      // Mensagem clara para RLS/perm
+      if (error.code === '42501' || error.message.includes('RLS')) {
+        return {
+          error:
+            'Sem permissão para criar oferta nessa organização. Verifique seu vínculo ao squad.',
+        }
+      }
+      return { error: `Erro ao criar oferta: ${error.message}` }
+    }
+
+    // Sucesso - redirecionar
+    redirect('/ofertas')
+  } catch (err) {
+    if (err instanceof Error) {
+      // Erro do getSessionUserAndOrg ou validação
+      return { error: err.message }
+    }
+    return { error: 'Erro inesperado ao criar oferta.' }
+  }
+}

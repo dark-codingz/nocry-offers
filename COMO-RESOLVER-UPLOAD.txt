@@ -1,0 +1,86 @@
+═══════════════════════════════════════════════════════════
+  🎯 SOLUÇÃO: Erro RLS no Upload de Arquivos
+═══════════════════════════════════════════════════════════
+
+ERRO:
+  "Erro ao enviar arquivo: new row violates row-level security policy"
+
+CAUSA:
+  Políticas RLS do Supabase Storage não configuradas.
+
+SOLUÇÃO (2 minutos):
+  
+  1️⃣ CRIAR BUCKET
+     • Ir: Supabase Dashboard → Storage → Buckets
+     • Criar: "offers-files" (PRIVADO)
+  
+  2️⃣ CONFIGURAR RLS
+     • Ir: Storage → offers-files → Policies
+     • Adicionar 4 políticas SQL (copiar de SOLUCAO-RAPIDA-UPLOAD.md)
+
+═══════════════════════════════════════════════════════════
+
+📋 POLÍTICAS SQL (Copiar e Colar):
+
+-- Política 1: INSERT (Upload)
+CREATE POLICY "Usuários autenticados podem fazer upload"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (bucket_id = 'offers-files');
+
+-- Política 2: SELECT (Download)
+CREATE POLICY "Usuários autenticados podem baixar"
+ON storage.objects FOR SELECT
+TO authenticated
+USING (bucket_id = 'offers-files');
+
+-- Política 3: UPDATE
+CREATE POLICY "Usuários autenticados podem atualizar"
+ON storage.objects FOR UPDATE
+TO authenticated
+USING (bucket_id = 'offers-files')
+WITH CHECK (bucket_id = 'offers-files');
+
+-- Política 4: DELETE
+CREATE POLICY "Usuários autenticados podem deletar"
+ON storage.objects FOR DELETE
+TO authenticated
+USING (bucket_id = 'offers-files');
+
+═══════════════════════════════════════════════════════════
+
+🧪 TESTAR:
+
+  1. Acessar: http://localhost:3000/diagnostics/upload
+     ✅ Deve mostrar: "Políticas RLS configuradas corretamente"
+  
+  2. Ir para uma oferta → Tab "Anexos"
+     ✅ Upload deve funcionar sem erro
+
+═══════════════════════════════════════════════════════════
+
+📚 DOCUMENTAÇÃO COMPLETA:
+
+  • SOLUCAO-RAPIDA-UPLOAD.md      → Solução rápida
+  • GUIA-VISUAL-STORAGE-RLS.md    → Guia visual
+  • DIAGNOSTICO-UPLOAD-RLS.md     → Técnico detalhado
+  • RESUMO-DIAGNOSTICO-UPLOAD.md  → Resumo executivo
+
+═══════════════════════════════════════════════════════════
+
+✅ IMPLEMENTADO NO CÓDIGO:
+
+  ✅ Logs detalhados de upload
+  ✅ Mensagens de erro específicas
+  ✅ Página de diagnóstico automático (/diagnostics/upload)
+  ✅ Documentação completa
+  ✅ Detecção de erro RLS
+
+═══════════════════════════════════════════════════════════
+
+🎉 PRONTO!
+   Após configurar as 4 políticas, o upload funcionará!
+
+
+
+
