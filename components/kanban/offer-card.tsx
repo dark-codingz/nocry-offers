@@ -30,11 +30,6 @@ export function OfferCard({ offer }: OfferCardProps) {
     transition,
   } as React.CSSProperties
 
-  const getOwnerInitials = (ownerId?: string) => {
-    if (!ownerId) return null
-    return 'OU' // Placeholder
-  }
-
   const handleDelete = async () => {
     setDeleting(true)
     const result = await deleteOffer(offer.id)
@@ -67,26 +62,19 @@ export function OfferCard({ offer }: OfferCardProps) {
         ref={setNodeRef}
         style={style}
         {...attributes}
-        className={`group relative cursor-grab rounded-2xl border border-white/20 bg-white/12 p-3 shadow-lg backdrop-blur-xl transition hover:border-white/30 hover:bg-white/[0.15] hover:shadow-[0_8px_30px_-12px_rgba(245,196,66,0.25)] active:cursor-grabbing before:absolute before:bottom-3 before:left-0 before:top-3 before:w-[3px] before:rounded-full before:content-[''] ${tint} ${
+        className={`group relative cursor-grab rounded-2xl border border-white/20 bg-white/12 p-3 shadow-lg backdrop-blur-xl transition hover:border-white/30 hover:bg-white/[0.15] hover:shadow-[0_8px_30px_-12px_rgba(245,196,66,0.25)] active:cursor-grabbing before:absolute before:bottom-3 before:left-0 before:top-3 before:w-[3px] before:rounded-full before:content-[''] overflow-hidden ${tint} ${
           isDragging ? 'opacity-50' : ''
         }`}
         title={`${offer.country}${offer.niche ? ` · ${offer.niche}` : ''}`}
       >
-        <div className="flex gap-3">
+        {/* Header: título + ícones */}
+        <div className="flex items-start gap-2">
           {/* Conteúdo */}
-          <Link href={`/ofertas/${offer.id}`} className="flex-1" {...listeners}>
-            <div className="flex items-start justify-between gap-2">
-              <h4 className="font-medium text-white/90">{offer.name}</h4>
-              {offer.owner_user_id && (
-                <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">
-                  {getOwnerInitials(offer.owner_user_id)}
-                </div>
-              )}
-            </div>
-
+          <Link href={`/ofertas/${offer.id}`} className="min-w-0 flex-1" {...listeners}>
+            <h4 className="font-medium text-white/90 truncate">{offer.name}</h4>
             {/* Subtitle */}
             {(offer.country || offer.niche) && (
-              <div className="text-sm text-white/55">
+              <div className="text-sm text-white/55 truncate">
                 {offer.country}
                 {offer.niche && ` · ${offer.niche}`}
               </div>
@@ -94,7 +82,7 @@ export function OfferCard({ offer }: OfferCardProps) {
           </Link>
 
           {/* Ações */}
-          <div className="flex items-start gap-1">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
             {/* Menu context */}
             <div className="relative">
               <button
@@ -102,7 +90,7 @@ export function OfferCard({ offer }: OfferCardProps) {
                   e.stopPropagation()
                   setShowMenu(!showMenu)
                 }}
-                className="rounded-xl border border-white/10 bg-white/5 p-2 transition hover:bg-white/10"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 transition hover:bg-white/10"
                 aria-label="Mais opções"
               >
                 <MoreVertical className="h-3 w-3 text-white/70" />
@@ -113,7 +101,7 @@ export function OfferCard({ offer }: OfferCardProps) {
                     className="fixed inset-0 z-10"
                     onClick={() => setShowMenu(false)}
                   />
-                  <div className="absolute right-0 top-full z-20 mt-1 rounded-lg border border-[var(--border-color)] bg-[var(--surface)] shadow-lg">
+                  <div className="absolute right-0 top-full z-50 mt-1 rounded-lg border border-[var(--border-color)] bg-[var(--surface)] shadow-lg">
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
@@ -135,7 +123,7 @@ export function OfferCard({ offer }: OfferCardProps) {
                 href={offer.ad_library_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-xl border border-white/10 bg-white/5 p-2 transition hover:bg-white/10"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 transition hover:bg-white/10"
                 aria-label="Meta"
                 onClick={(e) => e.stopPropagation()}
               >
@@ -154,7 +142,7 @@ export function OfferCard({ offer }: OfferCardProps) {
                 href={offer.original_funnel_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded-xl border border-white/10 bg-white/5 p-2 transition hover:bg-white/10"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 transition hover:bg-white/10"
                 aria-label="Funil"
                 onClick={(e) => e.stopPropagation()}
               >

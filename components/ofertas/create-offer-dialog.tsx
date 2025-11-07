@@ -136,7 +136,6 @@ export function CreateOfferDialog({ open, onOpenChange }: CreateOfferDialogProps
                 setValue={(v) => setForm((f) => ({ ...f, ad_library_url: v }))}
                 placeholder="facebook.com/ads/library..."
                 disabled={loading}
-                helperText="Cole a URL completa ou apenas o domínio/caminho; adicionamos https automaticamente."
                 required
               />
             </div>
