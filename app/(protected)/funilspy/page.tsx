@@ -179,7 +179,7 @@ export default function FunilSpyPage() {
               value={domain}
               onChange={(e) => setDomain(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="metododareconquistadefinitiva.com ou https://example.com"
+              placeholder="exemplo.com ou https://example.com"
               className="flex-1 px-4 py-2 bg-[#0f1419] border border-white/10 rounded-md text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={loading || dorkLoading}
             />
