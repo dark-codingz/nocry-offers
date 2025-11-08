@@ -30,12 +30,6 @@ const DomainOrQuerySchema = z
   .min(1, 'Domain ou query não pode estar vazio')
   .max(500, 'Domain ou query muito longo');
 
-const StartSchema = z
-  .string()
-  .optional()
-  .transform((val) => (val ? parseInt(val, 10) : 0))
-  .pipe(z.number().int().min(0));
-
 interface SerpApiResult {
   link?: string;
   url?: string;
@@ -73,6 +67,79 @@ interface ApiResponse {
   queries: string[];
   count: number;
   results: DorkResult[];
+}
+
+/**
+ * Constrói duas queries complementares a partir de um domínio ou query
+ * 
+ * Retorna sempre uma tupla [string, string] garantindo que sempre teremos duas queries:
+ * - Se receber apenas domínio ou URL, gera: inurl:{domain}/ e site:{domain}
+ * - Se receber query com inurl: ou site:, respeita e gera a complementar
+ * 
+ * Por que inurl:{domain}/ com barra?
+ * - A barra após o domínio força o Google a retornar páginas com paths (ex: /page, /path)
+ * - Sem a barra, pode retornar apenas a homepage, reduzindo a cobertura
+ * 
+ * @param domainOrQueryRaw - Domínio puro, URL completa ou query já formatada
+ * @returns Tupla [inurlQuery, siteQuery] garantindo sempre dois elementos
+ */
+function buildQueries(domainOrQueryRaw: string): [string, string] {
+  const trimmed = domainOrQueryRaw.trim();
+
+  // Normaliza removendo http(s)://, www. e espaços
+  let normalized = trimmed
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .split('/')[0] // Remove path se houver
+    .split(':')[0] // Remove porta se houver
+    .trim();
+
+  // Se já contém operadores de busca, processa
+  if (trimmed.includes('inurl:')) {
+    // Extrai o domínio da query inurl:
+    const inurlMatch = trimmed.match(/inurl:([^\s]+)/i);
+    if (inurlMatch) {
+      const inurlDomain = inurlMatch[1]
+        .replace(/^https?:\/\//, '')
+        .replace(/^www\./, '')
+        .split('/')[0]
+        .split(':')[0]
+        .trim();
+      
+      // Garante que inurl tenha barra
+      const inurlQuery = inurlDomain.endsWith('/') 
+        ? `inurl:${inurlDomain}` 
+        : `inurl:${inurlDomain}/`;
+      
+      return [inurlQuery, `site:${inurlDomain}`];
+    }
+  }
+
+  if (trimmed.includes('site:')) {
+    // Extrai o domínio da query site:
+    const siteMatch = trimmed.match(/site:([^\s]+)/i);
+    if (siteMatch) {
+      const siteDomain = siteMatch[1]
+        .replace(/^https?:\/\//, '')
+        .replace(/^www\./, '')
+        .split('/')[0]
+        .split(':')[0]
+        .trim();
+      
+      return [`inurl:${siteDomain}/`, `site:${siteDomain}`];
+    }
+  }
+
+  // Se não tem operadores, tenta extrair domínio usando extractDomain
+  try {
+    const domain = extractDomain(normalized);
+    // Retorna tupla garantida: inurl com barra e site sem barra
+    return [`inurl:${domain}/`, `site:${domain}`];
+  } catch (error) {
+    // Se falhar, usa o normalized como está
+    return [`inurl:${normalized}/`, `site:${normalized}`];
+  }
 }
 
 /**
@@ -261,9 +328,11 @@ function deduplicateAndPrioritize(results: DorkResult[]): DorkResult[] {
 
 /**
  * Busca usando SerpAPI (Google engine)
+ * @param q - Query de busca
+ * @param start - Offset para paginação (padrão: 0)
  */
 async function searchSerpAPI(
-  query: string,
+  q: string,
   start: number = 0
 ): Promise<DorkResult[]> {
   const apiKey = process.env.SERPAPI_KEY;
@@ -274,7 +343,7 @@ async function searchSerpAPI(
 
   // Monta URL da SerpAPI
   // Usa num=100 para pegar mais resultados por chamada
-  const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(query)}&num=100&start=${start}&google_domain=google.com&hl=en&api_key=${apiKey}`;
+  const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(q)}&num=100&start=${start}&google_domain=google.com&hl=en&api_key=${apiKey}`;
 
   // Headers conforme especificação
   const headers = {
@@ -303,35 +372,24 @@ async function searchSerpAPI(
 }
 
 /**
- * Extrai domínio limpo de uma query ou domínio
- * Se a query já contém site: ou inurl:, retorna como está
- * Caso contrário, extrai o domínio usando extractDomain
- */
-function extractDomainOrQuery(input: string): string {
-  const trimmed = input.trim();
-
-  // Se já contém operadores de busca, retorna como está
-  if (trimmed.includes('site:') || trimmed.includes('inurl:')) {
-    return trimmed;
-  }
-
-  // Caso contrário, extrai domínio limpo
-  try {
-    return extractDomain(trimmed);
-  } catch (error) {
-    // Se falhar, retorna o input original
-    return trimmed;
-  }
-}
-
-/**
  * GET /api/dorks?domain={domainOrQuery}&start={start?}
  */
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const domainOrQueryInput = searchParams.get('domain');
-    const startInput = searchParams.get('start');
+    const startParam = searchParams.get('start');
+
+    // Valida que domainOrQuery não está vazio
+    if (!domainOrQueryInput || domainOrQueryInput.trim().length === 0) {
+      return NextResponse.json(
+        {
+          error: 'missing query',
+          code: 'BAD_REQUEST',
+        },
+        { status: 400 }
+      );
+    }
 
     // Valida domainOrQuery
     const domainValidation = DomainOrQuerySchema.safeParse(domainOrQueryInput);
@@ -345,13 +403,35 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Valida start (opcional)
-    const startValidation = StartSchema.safeParse(startInput);
-    const start = startValidation.success ? startValidation.data : 0;
-
-    // Extrai domínio ou query
     const domainOrQuery = domainValidation.data;
-    const domainClean = extractDomainOrQuery(domainOrQuery);
+
+    // Parsing seguro do start: aceita number >= 0, default 0
+    const start = Number.isFinite(Number(startParam)) && Number(startParam) >= 0 
+      ? Number(startParam) 
+      : 0;
+
+    // Log de debug em desenvolvimento
+    if (process.env.NODE_ENV !== 'production') {
+      console.debug('[API /api/dorks] Input:', { domainOrQuery, start });
+    }
+
+    // Extrai domínio limpo para cache key
+    let domainClean: string;
+    try {
+      // Tenta extrair domínio limpo
+      const normalized = domainOrQuery
+        .toLowerCase()
+        .replace(/^https?:\/\//, '')
+        .replace(/^www\./, '')
+        .split('/')[0]
+        .split(':')[0]
+        .trim();
+      
+      domainClean = extractDomain(normalized);
+    } catch (error) {
+      // Se falhar, usa o input original (pode ser uma query customizada)
+      domainClean = domainOrQuery;
+    }
 
     // Verifica se SERPAPI_KEY está configurada
     if (!process.env.SERPAPI_KEY) {
@@ -377,19 +457,16 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Constrói duas queries complementares
-    // inurl:{domain}/ com barra para forçar páginas com paths
-    // site:{domain} para páginas indexadas do site
-    const queries = [
-      `inurl:${domainClean}/`,
-      `site:${domainClean}`,
-    ];
+    // Constrói duas queries complementares usando helper
+    // Retorna tupla [string, string] garantindo sempre dois elementos
+    const queries: [string, string] = buildQueries(domainOrQuery);
 
     // Busca resultados em paralelo (duas queries)
     let allResults: DorkResult[] = [];
     let upstreamStatus: number | undefined;
 
     try {
+      // TypeScript agora sabe que queries[0] e queries[1] são strings
       const [inurlResults, siteResults] = await Promise.all([
         searchSerpAPI(queries[0], start),
         searchSerpAPI(queries[1], start),
@@ -423,7 +500,7 @@ export async function GET(request: NextRequest) {
     // Monta resposta
     const response: ApiResponse = {
       domain: domainClean,
-      queries,
+      queries: [queries[0], queries[1]], // Converte tupla para array para resposta
       count: limited.length,
       results: limited,
     };
