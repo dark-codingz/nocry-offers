@@ -13,13 +13,14 @@ const domainSchema = z
   .max(253, 'Domínio muito longo')
   .refine(
     (val) => {
-      // Remove protocolo, www, espaços
-      const cleaned = val
+      // Remove protocolo, www, espaços - garante string segura
+      const parts = val
         .trim()
         .toLowerCase()
         .replace(/^https?:\/\//, '')
         .replace(/^www\./, '')
-        .split('/')[0]; // Remove path
+        .split('/');
+      const cleaned = parts[0] || ''; // Remove path, garante string não-undefined
 
       // Valida formato básico de domínio
       const domainRegex = /^([a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i;
@@ -47,11 +48,13 @@ export function extractDomain(urlOrDomain: string): string {
   // Remove www.
   cleaned = cleaned.replace(/^www\./, '');
 
-  // Remove path, query, fragment (tudo após /)
-  cleaned = cleaned.split('/')[0];
+  // Remove path, query, fragment (tudo após /) - garante string segura
+  const pathParts = cleaned.split('/');
+  cleaned = pathParts[0] || '';
 
-  // Remove porta (ex: example.com:8080)
-  cleaned = cleaned.split(':')[0];
+  // Remove porta (ex: example.com:8080) - garante string segura
+  const portParts = cleaned.split(':');
+  cleaned = portParts[0] || '';
 
   // Remove espaços restantes
   cleaned = cleaned.trim();

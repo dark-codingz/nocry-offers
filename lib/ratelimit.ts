@@ -81,8 +81,9 @@ export function getClientIP(request: Request): string {
   // Tenta obter do header x-forwarded-for (Vercel, proxies)
   const forwardedFor = request.headers.get('x-forwarded-for');
   if (forwardedFor) {
-    // Pega o primeiro IP (o cliente original)
-    const ip = forwardedFor.split(',')[0].trim();
+    // Pega o primeiro IP (o cliente original) - garante string segura
+    const parts = forwardedFor.split(',');
+    const ip = parts[0]?.trim() || '';
     if (ip) {
       return ip;
     }

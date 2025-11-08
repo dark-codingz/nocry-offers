@@ -87,11 +87,12 @@ function normalizeHostLike(s: string): string {
     }
   } catch {}
 
-  // domínio "solto"
-  return v
+  // domínio "solto" - garante string segura após split
+  const parts = v
     .replace(/^https?:\/\//, "")
     .replace(/^www\./, "")
-    .split(/[/?#]/, 1)[0]; // corta path/query se houver
+    .split(/[/?#]/, 1);
+  return safeStr(parts[0]); // corta path/query se houver, sempre retorna string
 }
 
 /**
