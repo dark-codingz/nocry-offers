@@ -17,18 +17,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 import { getCache, setCache, cacheKey } from '@/lib/cache';
 import { extractDomain } from '@/lib/domain';
 
 // Força runtime Node.js
 export const runtime = 'nodejs';
-
-// Schema de validação
-const DomainOrQuerySchema = z
-  .string()
-  .min(1, 'Domain ou query não pode estar vazio')
-  .max(500, 'Domain ou query muito longo');
 
 interface SerpApiResult {
   link?: string;
@@ -70,60 +63,62 @@ interface ApiResponse {
 }
 
 /**
- * buildQueries: cria duas queries garantidas [inurlQuery, siteQuery]
- * - aceita domínio puro, URL completa ou query já com operador (inurl: | site:)
- * - sempre retorna uma tupla [string, string] (nunca undefined)
- * - normaliza removendo http(s)://, www. e espaços
- * 
- * Por que inurl:{domain}/ com barra?
- * - A barra após o domínio força o Google a retornar páginas com paths (ex: /page, /path)
- * - Sem a barra, pode retornar apenas a homepage, reduzindo a cobertura
+ * Retorna sempre string (nunca undefined/null)
+ * safeStr evita undefined/null
+ */
+function safeStr(x: unknown): string {
+  if (typeof x === "string") return x;
+  if (x === undefined || x === null) return "";
+  return String(x);
+}
+
+/**
+ * Normaliza domínio/URL simples (remove scheme/www) — recebe SEMPRE string
+ */
+function normalizeHostLike(s: string): string {
+  const v = safeStr(s).trim().toLowerCase();
+  if (!v) return "";
+
+  // se for URL completa
+  try {
+    if (/^https?:\/\//i.test(v)) {
+      const u = new URL(v);
+      return u.hostname.replace(/^www\./, "");
+    }
+  } catch {}
+
+  // domínio "solto"
+  return v
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .split(/[/?#]/, 1)[0]; // corta path/query se houver
+}
+
+/**
+ * Constrói SEMPRE duas queries [inurl, site] a partir de domínio/URL ou de uma query já com operador.
+ * Nunca retorna undefined.
+ * buildQueries sempre retorna [string, string]
+ * usamos inurl:domain/ (com barra) para maximizar páginas com path
  */
 function buildQueries(domainOrQueryRaw: string): [string, string] {
-  // garante string segura para evitar "object is possibly undefined"
-  const domainOrQuerySafe = String(domainOrQueryRaw ?? "");
-  const trimmed = domainOrQuerySafe.trim();
+  const input = safeStr(domainOrQueryRaw).trim();
+  if (!input) return ["", ""];
 
-  // se input for vazio -> devolve duas queries vazias (caller deve validar e retornar 400)
-  if (!trimmed) return ["", ""];
+  const hasInurl = /(^|\s)inurl:/i.test(input);
+  const hasSite  = /(^|\s)site:/i.test(input);
 
-  // detecta se o usuário passou uma query já com operadores
-  const hasInurl = /(^|\s)inurl:/i.test(trimmed);
-  const hasSite  = /(^|\s)site:/i.test(trimmed);
+  // Se já veio operador, tenta extrair alvo; senão, normaliza domínio/URL
+  let base = "";
+  if (hasInurl || hasSite) {
+    const m = input.match(/(?:inurl:|site:)\s*([^\s]+)/i);
+    base = normalizeHostLike(m?.[1] ?? input);
+  } else {
+    base = normalizeHostLike(input);
+  }
 
-  // helper para extrair host de uma URL ou domínio simples
-  const extractDomain = (s: string) => {
-    try {
-      const sSafe = String(s ?? "").trim();
-      // se for URL completa
-      if (/^https?:\/\//i.test(sSafe)) {
-        const u = new URL(sSafe);
-        return u.hostname.replace(/^www\./i, "").toLowerCase();
-      }
-      // se for domínio simples (sem operadores)
-      if (!hasInurl && !hasSite && /^[a-z0-9.-]+$/i.test(sSafe)) {
-        return sSafe.replace(/^www\./i, "").toLowerCase();
-      }
-      // extrair domínio de operados: inurl:domain ou site:domain
-      const m = sSafe.match(/(?:inurl:|site:)\s*([^\s]+)/i);
-      if (m && m[1]) {
-        const v = m[1].replace(/^https?:\/\//i, "").replace(/^www\./i, "");
-        return v.toLowerCase();
-      }
-    } catch (e) {
-      // no-errors: fallback para o próprio string
-    }
-    return s.trim();
-  };
-
-  const domain = extractDomain(trimmed);
-
-  // montar sempre as duas queries:
-  // - inurl:domain/  (com barra para priorizar páginas com path)
-  // - site:domain
-  const qInurl = hasInurl ? trimmed : `inurl:${domain}/`;
-  const qSite  = hasSite  ? trimmed : `site:${domain}`;
-
+  // Gera as duas queries sempre
+  const qInurl = hasInurl ? input : `inurl:${base}/`; // barra para puxar paths
+  const qSite  = hasSite  ? input : `site:${base}`;
   return [qInurl, qSite];
 }
 
@@ -313,29 +308,17 @@ function deduplicateAndPrioritize(results: DorkResult[]): DorkResult[] {
 
 /**
  * Busca usando SerpAPI (Google engine)
- * Trata query vazia retornando array vazio sem chamar a API
- * @param q - Query de busca
- * @param start - Offset para paginação (padrão: 0)
+ * Trata query vazia retornando array vazio sem chamar a API (idempotente)
  */
-async function searchSerpAPI(
-  q: string,
-  start: number = 0
-): Promise<DorkResult[]> {
-  // Se query vazia, retorna array vazio sem chamar API
-  if (!q || q.trim().length === 0) {
-    return [];
-  }
+async function searchSerpAPI(q: string, start = 0): Promise<DorkResult[]> {
+  const qSafe = safeStr(q).trim();
+  if (!qSafe) return [];
 
-  const apiKey = process.env.SERPAPI_KEY;
+  const encodedQ = encodeURIComponent(qSafe);
+  const apiKey = safeStr(process.env.SERPAPI_KEY);
+  if (!apiKey) throw new Error("SERPAPI_KEY missing");
 
-  if (!apiKey) {
-    throw new Error('SERPAPI_KEY não configurada');
-  }
-
-  // Monta URL da SerpAPI
-  // Usa num=100 para pegar mais resultados por chamada
-  const encodedQ = encodeURIComponent(q);
-  const serpUrl = `https://serpapi.com/search.json?engine=google&q=${encodedQ}&num=100&start=${start}&google_domain=google.com&hl=en&api_key=${encodeURIComponent(apiKey)}`;
+  const url = `https://serpapi.com/search.json?engine=google&q=${encodedQ}&num=100&start=${start}&google_domain=google.com&hl=en&api_key=${encodeURIComponent(apiKey)}`;
 
   // Headers conforme especificação
   const headers = {
@@ -344,7 +327,7 @@ async function searchSerpAPI(
   };
 
   // Faz fetch com retry automático em caso de 429
-  const response = await fetchWithRetries(serpUrl, { headers });
+  const response = await fetchWithRetries(url, { headers });
 
   if (!response.ok) {
     throw new Error(
@@ -368,57 +351,58 @@ async function searchSerpAPI(
  */
 export async function GET(request: NextRequest) {
   try {
-    // leitura segura dos params
     const urlObj = new URL(request.url);
-    const rawInput = urlObj.searchParams.get("domain") ?? urlObj.searchParams.get("query") ?? "";
-    const startParam = urlObj.searchParams.get("start");
-    const start = Number.isFinite(Number(startParam)) && !isNaN(Number(startParam)) && Number(startParam) >= 0 ? Number(startParam) : 0;
+    const rawDomain = urlObj.searchParams.get("domain");
+    const rawQuery  = urlObj.searchParams.get("query");
+    const rawStart  = urlObj.searchParams.get("start");
 
-    // checa input não vazio
-    const domainOrQuery = String(rawInput ?? "").trim();
+    // força string segura e trim
+    const domainOrQuery = safeStr(rawDomain ?? rawQuery).trim();
     if (!domainOrQuery) {
       return NextResponse.json({ error: "missing query", code: "BAD_REQUEST" }, { status: 400 });
     }
 
-    // debug log em dev
+    // start seguro
+    const sNum = Number(rawStart);
+    const start = Number.isFinite(sNum) && sNum >= 0 ? sNum : 0;
+
+    // (opcional debug)
     if (process.env.NODE_ENV !== "production") {
-      console.debug("[dorks] domainOrQuery:", domainOrQuery, "start:", start);
+      console.debug("[dorks] input:", domainOrQuery, "start:", start);
     }
 
-    // Valida domainOrQuery com zod
-    const domainValidation = DomainOrQuerySchema.safeParse(domainOrQuery);
-    if (!domainValidation.success) {
+    // SEMPRE tupla
+    const queries: [string, string] = buildQueries(domainOrQuery);
+
+    // Valida que as queries não estão vazias
+    if (!queries[0] || !queries[1]) {
       return NextResponse.json(
         {
-          error: domainValidation.error.errors[0]?.message || 'Domain inválido',
-          code: 'INVALID_DOMAIN',
+          error: 'invalid query format',
+          code: 'BAD_REQUEST',
         },
         { status: 400 }
       );
     }
 
-    const validatedDomainOrQuery = domainValidation.data;
-
     // Extrai domínio limpo para cache key
     let domainClean: string;
     try {
-      // Tenta extrair domínio limpo
-      const normalized = String(validatedDomainOrQuery ?? "")
-        .toLowerCase()
-        .replace(/^https?:\/\//, '')
-        .replace(/^www\./, '')
-        .split('/')[0]
-        .split(':')[0]
-        .trim();
-      
-      domainClean = extractDomain(normalized);
+      // Tenta extrair domínio limpo usando normalizeHostLike
+      const normalized = normalizeHostLike(domainOrQuery);
+      if (normalized) {
+        domainClean = extractDomain(normalized);
+      } else {
+        domainClean = domainOrQuery;
+      }
     } catch (error) {
       // Se falhar, usa o input original (pode ser uma query customizada)
-      domainClean = validatedDomainOrQuery;
+      domainClean = domainOrQuery;
     }
 
     // Verifica se SERPAPI_KEY está configurada
-    if (!process.env.SERPAPI_KEY) {
+    const apiKey = safeStr(process.env.SERPAPI_KEY);
+    if (!apiKey) {
       return NextResponse.json(
         {
           error: 'missing api key',
@@ -441,27 +425,11 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // garante tupla não-undefined
-    const queries: [string, string] = buildQueries(validatedDomainOrQuery);
-
-    // Valida que as queries não estão vazias (buildQueries pode retornar ["", ""] se input inválido)
-    if (!queries[0] || !queries[1]) {
-      return NextResponse.json(
-        {
-          error: 'invalid query format',
-          code: 'BAD_REQUEST',
-        },
-        { status: 400 }
-      );
-    }
-
     // Busca resultados em paralelo (duas queries)
     let allResults: DorkResult[] = [];
     let upstreamStatus: number | undefined;
 
     try {
-      // agora queries[0] e queries[1] são strings garantidas (podem ser vazias se input inválido,
-      // mas já validamos domainOrQuery acima para não ser vazio)
       const [inurlResults, siteResults] = await Promise.all([
         searchSerpAPI(queries[0], start),
         searchSerpAPI(queries[1], start),
