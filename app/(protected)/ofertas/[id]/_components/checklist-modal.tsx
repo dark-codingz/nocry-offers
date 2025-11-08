@@ -136,7 +136,7 @@ export function ChecklistModal({
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className="input w-full"
-                placeholder="Ex: Criar thumbnails para vídeos"
+                placeholder="Ex: Modelar video para Upsell"
                 required
                 disabled={loading}
               />

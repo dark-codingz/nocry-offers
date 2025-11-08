@@ -254,6 +254,159 @@ npm run format
 - Verifique se a URL do Supabase está correta no `.env.local`
 - No dashboard do Supabase, vá em Settings → API → Additional allowed origins e adicione `http://localhost:3000`
 
+## 🔍 FunilSpy
+
+O FunilSpy é uma ferramenta para consultar Certificate Transparency via crt.sh e realizar pesquisas web (dorks) para descobrir subdomínios e páginas relacionadas a um domínio.
+
+### Como Usar
+
+1. Acesse `/funilspy` no navegador
+2. Cole um domínio ou URL (ex.: `metododareconquistadefinitiva.com` ou `https://example.com`)
+3. Clique em "Buscar"
+4. Visualize duas seções de resultados:
+   - **CRT.sh**: Tabela com hostnames encontrados via Certificate Transparency
+   - **Pesquisa web (inurl:)**: Lista de páginas web encontradas com o domínio na URL
+
+### APIs
+
+#### API CRT
+
+A API está disponível em `/api/crt?domain={domain}`:
+
+```bash
+curl "http://localhost:3000/api/crt?domain=metododareconquistadefinitiva.com"
+```
+
+**Resposta:**
+```json
+{
+  "domain": "metododareconquistadefinitiva.com",
+  "count": 42,
+  "results": [
+    {
+      "hostname": "a.example.com",
+      "not_before": "2023-01-01T00:00:00Z",
+      "not_after": "2024-01-01T00:00:00Z",
+      "issuer": "Let's Encrypt"
+    }
+  ]
+}
+```
+
+#### API Dorks (Pesquisa Web)
+
+A API está disponível em `/api/dorks?domain={domainOrQuery}&start={start?}` (usa exclusivamente SerpAPI):
+
+```bash
+# Buscar resultados agregados (site + inurl)
+curl "http://localhost:3000/api/dorks?domain=metododareconquistadefinitiva.com"
+
+# Usar start=100 para próxima página
+curl "http://localhost:3000/api/dorks?domain=metododareconquistadefinitiva.com&start=100"
+```
+
+**Resposta:**
+```json
+{
+  "domain": "metododareconquistadefinitiva.com",
+  "queries": ["inurl:metododareconquistadefinitiva.com/", "site:metododareconquistadefinitiva.com"],
+  "count": 123,
+  "results": [
+    {
+      "title": "Página encontrada",
+      "link": "https://metododareconquistadefinitiva.com/path",
+      "snippet": "Descrição da página...",
+      "source": "serpapi"
+    }
+  ]
+}
+```
+
+**Características:**
+- **SerpAPI exclusivo**: Requer `SERPAPI_KEY` no `.env.local` (ou Environment Variables da Vercel em produção)
+- **Duas queries complementares**: Faz `site:{domain}` e `inurl:{domain}/` em paralelo e agrega resultados
+- **Extração robusta de URLs**: Extrai URLs de vários campos da resposta SerpAPI (link, url, displayed_link, etc.)
+- **Deduplicação inteligente**: Prioriza links com path sobre links sem path, mantém snippet maior em duplicatas
+- **Cache automático**: Usa `lib/cache.ts` com TTL configurável via `CACHE_TTL` (padrão: 3600s)
+- **Retry automático**: Em caso de rate limit (429), faz retry com backoff exponencial (2s, depois 4s)
+- **Paginação**: Suporta parâmetro `start` para buscar páginas subsequentes (ex: start=0, start=100, start=200)
+- **Limite**: Máximo de 200 resultados por resposta
+- **Headers**: Respostas incluem `X-Cache: HIT` ou `X-Cache: MISS`
+
+### Cache e Rate Limiting
+
+O FunilSpy implementa cache e rate limiting opcionais:
+
+- **Upstash Redis** (se `UPSTASH_REDIS_REST_URL` e `UPSTASH_REDIS_REST_TOKEN` estiverem configurados):
+  - Cache distribuído (compartilhado entre instâncias Serverless)
+  - Rate limiting por IP (padrão: 10 req/min)
+- **Map em memória** (fallback quando Upstash não está configurado):
+  - Cache local por instância
+  - Sem rate limiting (apenas backoff local em caso de 429 do crt.sh)
+- **TTL padrão**: 3600 segundos (1 hora) - configurável via `CACHE_TTL`
+
+Respostas cacheadas incluem o header `X-Cache: HIT`, enquanto respostas novas incluem `X-Cache: MISS`.
+
+### Configuração na Vercel
+
+1. Acesse [Upstash Console](https://console.upstash.com/)
+2. Crie um novo banco Redis
+3. Copie a **REST URL** e **REST TOKEN**
+4. Adicione no painel da Vercel (Settings → Environment Variables):
+
+```env
+UPSTASH_REDIS_REST_URL=https://...
+UPSTASH_REDIS_REST_TOKEN=...
+CACHE_TTL=3600
+RATE_LIMIT_PER_MINUTE=10
+```
+
+### Configuração Local
+
+Adicione no `.env.local`:
+
+```env
+# Upstash Redis (opcional - para cache distribuído e rate limiting)
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
+
+# TTL do cache em segundos (padrão: 3600 = 1 hora)
+CACHE_TTL=3600
+
+# Rate limit por minuto (padrão: 10) - só funciona se Upstash estiver configurado
+RATE_LIMIT_PER_MINUTE=10
+
+# Dorks - Pesquisa Web (SerpAPI exclusivo)
+# ⚠️ IMPORTANTE: NÃO COMMITE CHAVES REAIS EM REPOSITÓRIOS PÚBLICOS
+# Para produção, use Environment Variables da Vercel
+SERPAPI_KEY=a0908f8bcc5a0f987d674072c5d03dc568cfa42f8367529881890643da6d8265
+# Tempo de cache em segundos (default 3600)
+CACHE_TTL=3600
+```
+
+**⚠️ Segurança:** A chave SerpAPI no `.env.example` é apenas para testes locais. Para produção na Vercel:
+1. Acesse o painel da Vercel → Settings → Environment Variables
+2. Adicione `SERPAPI_KEY` com sua chave real
+3. **NÃO** commite a chave no repositório
+
+### Observações Importantes
+
+⚠️ **Este serviço usa crt.sh (público) e APIs de busca. Respeite as regras e não faça scraping massivo sem autorização. Use cache e limites.**
+
+**CRT.sh:**
+- O FunilSpy implementa retry com backoff exponencial em caso de rate limit (429): 2s, depois 4s (máximo 2 tentativas)
+- Requests concorrentes para o mesmo domínio são agrupados automaticamente
+- Os dados são deduplicados e ordenados alfabeticamente
+
+**Dorks (Pesquisa Web):**
+- **SerpAPI exclusivo**: Usa apenas SerpAPI (Google engine), requer `SERPAPI_KEY` no `.env.local`
+- **Cache automático**: Usa `lib/cache.ts` com TTL configurável via `CACHE_TTL` (padrão: 3600s)
+- **Retry automático**: Em caso de rate limit (429), faz retry com backoff exponencial (2s, depois 4s)
+- **Deduplicação**: Remove duplicatas por link (case-insensitive) e limita a 50 resultados
+- **Headers de cache**: Respostas incluem `X-Cache: HIT` ou `X-Cache: MISS`
+
+**Runtime:** Node.js (melhor compatibilidade com fetch, Upstash e cheerio)
+
 ## 📚 Recursos
 
 - [Next.js Documentation](https://nextjs.org/docs)

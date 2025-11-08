@@ -54,8 +54,8 @@ export default function ClonePage() {
     <div className="min-h-screen w-full" style={{ backgroundColor: 'var(--bg)' }}>
       <div className="w-full px-4 py-6 md:px-6 lg:px-8 max-w-4xl mx-auto">
         <div className="mb-6">
-          <h1 className="section-title text-3xl mb-2">Clone Tool</h1>
-          <p className="muted text-sm">Clone landing pages completa com assets</p>
+          <h1 className="section-title text-3xl mb-2">NoCry Clone</h1>
+          <p className="muted text-sm">Where originals fail, clones persist.</p>
         </div>
 
         {/* Control Panel */}
