@@ -4,8 +4,7 @@ export const dynamic = 'force-dynamic'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 import fs from 'node:fs'
-import path from 'node:path'
-import { runCloneJob, createZipFromDir } from '@/lib/cloneJob'
+import { runCloneJob, createZipFromDir, resolveCloneJobPaths, CLONE_JOBS_ROOT } from '@/lib/cloneJob'
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,21 +18,15 @@ export async function POST(request: NextRequest) {
     // Usar helper compartilhado
     const result = await runCloneJob(url)
 
-    // Gerar ZIP
-    // Na Vercel, usar /tmp; em desenvolvimento, usar public/clone-jobs
-    const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV
-    const baseDir = isVercel 
-      ? '/tmp/clone-jobs'
-      : path.join(process.cwd(), 'public', 'clone-jobs')
-    
-    const outZip = path.join(baseDir, `${result.jobId}.zip`)
+    // Gerar ZIP usando função centralizada
+    const { zipPath } = resolveCloneJobPaths(result.jobId)
     
     // Garantir que o diretório existe
-    await fs.promises.mkdir(baseDir, { recursive: true })
+    await fs.promises.mkdir(CLONE_JOBS_ROOT, { recursive: true })
     
-    await createZipFromDir(result.workDir, outZip)
+    await createZipFromDir(result.workDir, zipPath)
 
-    const zipBuffer = await fs.promises.readFile(outZip)
+    const zipBuffer = await fs.promises.readFile(zipPath)
 
     return new Response(zipBuffer, {
       status: 200,

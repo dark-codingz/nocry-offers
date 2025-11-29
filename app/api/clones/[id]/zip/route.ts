@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerClient } from '@/lib/supabase/server'
 import * as fs from 'fs'
 import * as path from 'path'
-import { createZipFromDir, copyDirRecursive } from '@/lib/cloneJob'
+import { createZipFromDir, copyDirRecursive, CLONE_JOBS_ROOT, IS_VERCEL } from '@/lib/cloneJob'
 import { cleanHtmlForExport } from '@/lib/editorHtml'
 
 export const runtime = 'nodejs'
@@ -42,18 +42,15 @@ export async function POST(
       return NextResponse.json({ error: 'Clone não encontrado' }, { status: 404 })
     }
 
-    // Na Vercel, usar /tmp; em desenvolvimento, usar public/
-    const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV
-    const baseDir = isVercel ? '/tmp' : path.join(process.cwd(), 'public')
+    // Usar diretório base centralizado
+    const baseDir = IS_VERCEL ? '/tmp' : path.join(process.cwd(), 'public')
     
     let editDir: string
     let zipPath: string
 
     if (clone.job_id) {
       // CASO 1: Tem job_id - copiar assets e sobrescrever HTML
-      const originalDir = isVercel
-        ? path.join('/tmp', 'clone-jobs', clone.job_id)
-        : path.join(process.cwd(), 'public', 'clone-jobs', clone.job_id)
+      const originalDir = path.join(CLONE_JOBS_ROOT, clone.job_id)
 
       // Verificar se a pasta original existe
       const originalExists = await fs.promises

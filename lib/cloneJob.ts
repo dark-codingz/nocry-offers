@@ -6,11 +6,41 @@ import { load, type CheerioAPI } from 'cheerio'
 import axios from 'axios'
 import mime from 'mime-types'
 
+// Detecção centralizada de ambiente
+export const IS_VERCEL =
+  process.env.VERCEL === '1' ||
+  process.env.VERCEL === 'true' ||
+  !!process.env.VERCEL_ENV
+
+export const CLONE_JOBS_ROOT = IS_VERCEL
+  ? '/tmp/clone-jobs'
+  : path.join(process.cwd(), 'public', 'clone-jobs')
+
 export type CloneJobResult = {
   jobId: string
   workDir: string
   finalHtml: string
   publicBasePath: string
+}
+
+/**
+ * Resolve todos os caminhos relacionados a um clone job
+ * Centraliza a lógica de /tmp vs public/ baseado no ambiente
+ */
+export function resolveCloneJobPaths(jobId: string) {
+  const jobDir = path.join(CLONE_JOBS_ROOT, jobId)
+  const zipPath = path.join(CLONE_JOBS_ROOT, `${jobId}.zip`)
+
+  // Caminho público só existe em dev/local (assets em public/)
+  const publicBasePath = IS_VERCEL ? '' : `/clone-jobs/${jobId}/`
+  const publicZipPath = IS_VERCEL ? '' : `/clone-jobs/${jobId}.zip`
+
+  return {
+    jobDir,
+    zipPath,
+    publicBasePath,
+    publicZipPath,
+  }
 }
 
 function randomId(len = 7) {
@@ -148,17 +178,11 @@ export async function runCloneJob(url: string): Promise<CloneJobResult> {
   // Criar diretório de trabalho
   const jobId = `clone-${Date.now()}-${randomId()}`
   
-  // Na Vercel, usar /tmp (único diretório writable)
-  // Em desenvolvimento/local, usar public/clone-jobs
-  const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV
-  const baseDir = isVercel 
-    ? path.join('/tmp', 'clone-jobs')
-    : path.join(process.cwd(), 'public', 'clone-jobs')
-  
-  const workDir = path.join(baseDir, jobId)
+  // Usar função centralizada para resolver paths
+  const { jobDir: workDir, publicBasePath } = resolveCloneJobPaths(jobId)
   
   // Garantir que o diretório pai existe
-  await fs.promises.mkdir(baseDir, { recursive: true })
+  await fs.promises.mkdir(CLONE_JOBS_ROOT, { recursive: true })
   await fs.promises.mkdir(workDir, { recursive: true })
 
   // Parse HTML e coleta assets
@@ -311,12 +335,6 @@ export async function runCloneJob(url: string): Promise<CloneJobResult> {
 
   const finalHtml = $.html()
   await fs.promises.writeFile(path.join(workDir, 'index.html'), finalHtml, 'utf8')
-
-  // Na Vercel, não podemos servir arquivos de /tmp via URL pública
-  // Então não usamos base href (deixa URLs originais)
-  // Em desenvolvimento, usamos publicBasePath normal
-  const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV
-  const publicBasePath = isVercel ? '' : `/clone-jobs/${jobId}/`
 
   return {
     jobId,
