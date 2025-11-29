@@ -105,8 +105,8 @@ export default function EditorPage() {
   // srcDoc memoizado - não muda quando o modo de viewport muda
   const srcDoc = useMemo(() => {
     if (!clone) return ''
-    return buildSrcDoc(clone.html)
-  }, [clone?.html])
+    return buildSrcDoc(clone.html, clone.original_url)
+  }, [clone?.html, clone?.original_url])
 
   // Buscar clone
   useEffect(() => {
@@ -1399,7 +1399,19 @@ export default function EditorPage() {
         throw new Error('Não foi possível acessar o documento')
       }
 
-      const newHtml = doc.documentElement.outerHTML
+      let newHtml = doc.documentElement.outerHTML
+
+      // Remover o <base id="nocry-editor-base" ...> que injetamos só pro editor
+      newHtml = newHtml.replace(
+        /<base[^>]*id=["']nocry-editor-base["'][^>]*>\s*/i,
+        ''
+      )
+
+      // Remover o <script id="nocry-editor-script">...</script> que é só do editor
+      newHtml = newHtml.replace(
+        /<script[^>]*id=["']nocry-editor-script["'][^>]*>[\s\S]*?<\/script>\s*/i,
+        ''
+      )
 
       // 1. Salvar no banco
       const saveRes = await fetch(`/api/clones/${id}`, {
@@ -1493,7 +1505,36 @@ export default function EditorPage() {
   }
 
   // Construir srcDoc com script injetado (preserva <base> do HTML)
-  function buildSrcDoc(html: string) {
+  function buildSrcDoc(html: string, originalUrl: string) {
+    // Calcular baseHref a partir de originalUrl
+    let baseHref: string | null = null
+    try {
+      const u = new URL(originalUrl)
+      // Para LPs, o mais seguro é usar o origin com barra final
+      baseHref = u.origin + '/'
+    } catch {
+      baseHref = null
+    }
+
+    // Começar de uma cópia do HTML original
+    let result = html
+
+    // Remover qualquer <base> pré-existente (por segurança)
+    result = result.replace(/<base[^>]*>/gi, '')
+
+    // Se baseHref não for null, injetar um <base> com id fixo dentro da <head>
+    if (baseHref) {
+      if (result.match(/<head[^>]*>/i)) {
+        result = result.replace(
+          /<head([^>]*)>/i,
+          `<head$1><base id="nocry-editor-base" href="${baseHref}">`
+        )
+      } else {
+        // fallback raro: não tem <head>
+        result = `<head><base id="nocry-editor-base" href="${baseHref}"></head>` + result
+      }
+    }
+
     const scrollbarStyle = `
       <style id="nocry-scrollbar-style">
         html, body {
@@ -2198,7 +2239,7 @@ export default function EditorPage() {
     `
 
     // Injeta o style no head e o script antes de </body>
-    let result = html
+    // (result já foi declarado no início da função)
     
     // Injeta style no head
     if (result.includes('</head>')) {
