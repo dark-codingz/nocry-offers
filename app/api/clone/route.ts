@@ -20,7 +20,17 @@ export async function POST(request: NextRequest) {
     const result = await runCloneJob(url)
 
     // Gerar ZIP
-    const outZip = path.join(process.cwd(), 'public', 'clone-jobs', `${result.jobId}.zip`)
+    // Na Vercel, usar /tmp; em desenvolvimento, usar public/clone-jobs
+    const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV
+    const baseDir = isVercel 
+      ? '/tmp/clone-jobs'
+      : path.join(process.cwd(), 'public', 'clone-jobs')
+    
+    const outZip = path.join(baseDir, `${result.jobId}.zip`)
+    
+    // Garantir que o diretório existe
+    await fs.promises.mkdir(baseDir, { recursive: true })
+    
     await createZipFromDir(result.workDir, outZip)
 
     const zipBuffer = await fs.promises.readFile(outZip)

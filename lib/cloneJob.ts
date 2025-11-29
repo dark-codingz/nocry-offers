@@ -147,7 +147,18 @@ export async function runCloneJob(url: string): Promise<CloneJobResult> {
 
   // Criar diretório de trabalho
   const jobId = `clone-${Date.now()}-${randomId()}`
-  const workDir = path.join(process.cwd(), 'public', 'clone-jobs', jobId)
+  
+  // Na Vercel, usar /tmp (único diretório writable)
+  // Em desenvolvimento/local, usar public/clone-jobs
+  const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV
+  const baseDir = isVercel 
+    ? path.join('/tmp', 'clone-jobs')
+    : path.join(process.cwd(), 'public', 'clone-jobs')
+  
+  const workDir = path.join(baseDir, jobId)
+  
+  // Garantir que o diretório pai existe
+  await fs.promises.mkdir(baseDir, { recursive: true })
   await fs.promises.mkdir(workDir, { recursive: true })
 
   // Parse HTML e coleta assets
@@ -301,7 +312,11 @@ export async function runCloneJob(url: string): Promise<CloneJobResult> {
   const finalHtml = $.html()
   await fs.promises.writeFile(path.join(workDir, 'index.html'), finalHtml, 'utf8')
 
-  const publicBasePath = `/clone-jobs/${jobId}/`
+  // Na Vercel, não podemos servir arquivos de /tmp via URL pública
+  // Então não usamos base href (deixa URLs originais)
+  // Em desenvolvimento, usamos publicBasePath normal
+  const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV
+  const publicBasePath = isVercel ? '' : `/clone-jobs/${jobId}/`
 
   return {
     jobId,
@@ -334,6 +349,12 @@ export async function createZipFromDir(inputDir: string, outPath: string) {
 }
 
 export function injectBaseHref(html: string, baseHref: string): string {
+  // Se baseHref estiver vazio (ex: na Vercel), não injeta base tag
+  // Mantém URLs originais
+  if (!baseHref || baseHref.trim() === '') {
+    return html
+  }
+  
   const baseTag = `<base href="${baseHref}">`
   if (html.includes('<head')) {
     return html.replace('<head', `<head>${baseTag}`)

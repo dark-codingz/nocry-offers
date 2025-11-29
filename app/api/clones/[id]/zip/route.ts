@@ -42,12 +42,18 @@ export async function POST(
       return NextResponse.json({ error: 'Clone não encontrado' }, { status: 404 })
     }
 
+    // Na Vercel, usar /tmp; em desenvolvimento, usar public/
+    const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV
+    const baseDir = isVercel ? '/tmp' : path.join(process.cwd(), 'public')
+    
     let editDir: string
     let zipPath: string
 
     if (clone.job_id) {
       // CASO 1: Tem job_id - copiar assets e sobrescrever HTML
-      const originalDir = path.join(process.cwd(), 'public', 'clone-jobs', clone.job_id)
+      const originalDir = isVercel
+        ? path.join('/tmp', 'clone-jobs', clone.job_id)
+        : path.join(process.cwd(), 'public', 'clone-jobs', clone.job_id)
 
       // Verificar se a pasta original existe
       const originalExists = await fs.promises
@@ -59,18 +65,18 @@ export async function POST(
         console.warn(`[CLONE] Original dir not found: ${originalDir}, falling back to HTML only`)
         // Fallback: criar pasta só com HTML limpo
         const jobId = `edit-${clone.id}-${Date.now()}`
-        editDir = path.join(process.cwd(), 'public', 'clone-edited-jobs', jobId)
+        editDir = path.join(baseDir, 'clone-edited-jobs', jobId)
         await fs.promises.mkdir(editDir, { recursive: true })
         
         // Limpar HTML antes de salvar
         const cleanHtml = cleanHtmlForExport(clone.html)
         await fs.promises.writeFile(path.join(editDir, 'index.html'), cleanHtml, 'utf8')
         
-        zipPath = path.join(process.cwd(), 'public', 'clone-edited-jobs', `${jobId}.zip`)
+        zipPath = path.join(baseDir, 'clone-edited-jobs', `${jobId}.zip`)
       } else {
         // Copiar todos os assets
         const editJobId = `edit-${clone.job_id}-${Date.now()}`
-        editDir = path.join(process.cwd(), 'public', 'clone-edited-jobs', editJobId)
+        editDir = path.join(baseDir, 'clone-edited-jobs', editJobId)
 
         // Copiar recursivamente
         await copyDirRecursive(originalDir, editDir)
@@ -79,19 +85,19 @@ export async function POST(
         const cleanHtml = cleanHtmlForExport(clone.html)
         await fs.promises.writeFile(path.join(editDir, 'index.html'), cleanHtml, 'utf8')
 
-        zipPath = path.join(process.cwd(), 'public', 'clone-edited-jobs', `${editJobId}.zip`)
+        zipPath = path.join(baseDir, 'clone-edited-jobs', `${editJobId}.zip`)
       }
     } else {
       // CASO 2: Sem job_id - fallback (só HTML limpo)
       const jobId = `edit-${clone.id}-${Date.now()}`
-      editDir = path.join(process.cwd(), 'public', 'clone-edited-jobs', jobId)
+      editDir = path.join(baseDir, 'clone-edited-jobs', jobId)
       await fs.promises.mkdir(editDir, { recursive: true })
       
       // Limpar HTML antes de salvar
       const cleanHtml = cleanHtmlForExport(clone.html)
       await fs.promises.writeFile(path.join(editDir, 'index.html'), cleanHtml, 'utf8')
       
-      zipPath = path.join(process.cwd(), 'public', 'clone-edited-jobs', `${jobId}.zip`)
+      zipPath = path.join(baseDir, 'clone-edited-jobs', `${jobId}.zip`)
     }
 
     // 3. Criar ZIP
