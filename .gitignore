@@ -33,5 +33,9 @@ next-env.d.ts
 public/clone-jobs/*
 !public/clone-jobs/.gitkeep
 
+# Clone edited jobs (temporary files for editable clones)
+public/clone-edited-jobs/*
+!public/clone-edited-jobs/.gitkeep
+
 
 

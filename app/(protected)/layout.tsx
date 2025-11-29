@@ -24,10 +24,17 @@ export default async function ProtectedLayout({
   }
 
   return (
-    <div className="min-h-screen text-white w-full max-w-full overflow-x-hidden" style={{ backgroundColor: 'var(--bg)' }}>
+    <div 
+      className="min-h-screen text-white w-full max-w-full overflow-x-hidden" 
+      style={{ 
+        backgroundColor: '#020204',
+        backgroundImage: 'radial-gradient(circle at center, rgba(5, 5, 8, 0.8) 0%, #020204 100%)',
+        backgroundAttachment: 'fixed',
+      }}
+    >
       <StorageDiagnostics />
       <AppNav>
-        <main className="w-full max-w-full lg:pl-[var(--rail-w-collapsed)] pb-16 lg:pb-0" style={{ minHeight: '100dvh' }}>
+        <main className="w-full max-w-full lg:pl-20 pb-16 lg:pb-0" style={{ minHeight: '100dvh' }}>
           {children}
         </main>
       </AppNav>
@@ -36,7 +43,7 @@ export default async function ProtectedLayout({
         theme="dark"
         toastOptions={{
           style: {
-            background: 'rgba(20, 20, 25, 0.95)',
+            background: 'rgba(2, 2, 4, 0.95)',
             border: '1px solid rgba(255, 255, 255, 0.1)',
             color: 'rgba(255, 255, 255, 0.9)',
             backdropFilter: 'blur(12px)',

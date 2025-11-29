@@ -1,56 +1,8 @@
 'use client'
 
-import { motion, useSpring, useMotionValue, useTransform } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { Search, Plus } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
-import { countUp } from '@/lib/gsap'
-
-interface StatCardProps {
-  label: string
-  value: number
-  delay?: number
-}
-
-function StatCard({ label, value, delay = 0 }: StatCardProps) {
-  const [displayValue, setDisplayValue] = useState(0)
-  const spring = useSpring(0, { stiffness: 100, damping: 20 })
-  const elementRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      spring.set(value)
-    }, delay * 100)
-
-    spring.on('change', (latest) => {
-      setDisplayValue(Math.round(latest))
-    })
-
-    return () => {
-      clearTimeout(timer)
-      spring.destroy()
-    }
-  }, [value, delay, spring])
-
-  return (
-    <motion.div
-      ref={elementRef}
-      initial={{ opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.5, ease: 'easeOut' }}
-      className="nc-glass nc-card group relative rounded-2xl p-4"
-      whileHover={{ y: -2 }}
-    >
-      <div className="text-xs font-medium text-[var(--nc-fg-dim)] mb-1">{label}</div>
-      <div className="text-2xl font-bold text-[var(--nc-fg)]">{displayValue}</div>
-      <motion.div
-        className="absolute bottom-0 left-0 h-0.5 bg-gradient-to-r from-[var(--nc-cyan)] to-[var(--nc-gold)]"
-        initial={{ width: 0 }}
-        whileHover={{ width: '100%' }}
-        transition={{ duration: 0.3 }}
-      />
-    </motion.div>
-  )
-}
+import { useState } from 'react'
 
 interface HeroProps {
   onCreateClick: () => void
@@ -60,95 +12,48 @@ interface HeroProps {
     emProducao: number
     pausadas: number
   }
+  totalAtivos: number
 }
 
-export function Hero({ onCreateClick, stats }: HeroProps) {
+export function Hero({ onCreateClick, stats, totalAtivos }: HeroProps) {
   const [searchQuery, setSearchQuery] = useState('')
-  const mouseX = useMotionValue(0)
-  const mouseY = useMotionValue(0)
-  const parallaxX = useTransform(mouseX, (val) => (val / (typeof window !== 'undefined' ? window.innerWidth : 1920)) * 10)
-  const parallaxY = useTransform(mouseY, (val) => (val / (typeof window !== 'undefined' ? window.innerHeight : 1080)) * 10)
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      mouseX.set(e.clientX)
-      mouseY.set(e.clientY)
-    }
-    window.addEventListener('mousemove', handleMouseMove)
-    return () => window.removeEventListener('mousemove', handleMouseMove)
-  }, [mouseX, mouseY])
 
   return (
-    <motion.section
-      initial={{ opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, ease: 'easeOut' }}
-      className="relative mb-8 overflow-hidden rounded-3xl nc-glass p-8 w-full max-w-full"
-      onMouseMove={(e) => {
-        mouseX.set(e.clientX)
-        mouseY.set(e.clientY)
-      }}
-    >
-      {/* Background decorativo com parallax */}
-      <motion.div
-        style={{ 
-          x: parallaxX, 
-          y: parallaxY,
-          maxWidth: '100%',
-          maxHeight: '100%',
-        }}
-        className="absolute inset-0 opacity-5 pointer-events-none overflow-hidden"
-      >
-        <div
-          className="absolute inset-0"
-          style={{
-            backgroundImage: `radial-gradient(circle at 2px 2px, var(--nc-cyan) 1px, transparent 0)`,
-            backgroundSize: '32px 32px',
-          }}
-        />
-      </motion.div>
-
-      <div className="relative z-10">
-        {/* Título e subtítulo */}
-        <div className="mb-6">
-          <div className="flex items-center gap-3 mb-2">
-            <h1 className="nc-title text-4xl font-bold text-[var(--nc-fg)]">
-              NoCry // Ofertas
-            </h1>
-            <span className="nc-glass rounded-full px-3 py-1 text-sm font-medium text-[var(--nc-gold)]">
-              {stats.emAnalise + stats.aprovadas + stats.emProducao + stats.pausadas} ativo(s)
-            </span>
+    <>
+      {/* Primeira linha: Título à esquerda, badge + botão à direita */}
+      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 mb-6">
+        {/* Esquerda: Stack vertical com título e subtítulo */}
+        <div className="flex-1">
+          {/* Label pequena uppercase */}
+          <div className="text-xs font-medium text-white/40 uppercase tracking-wider mb-2">
+            OFERTAS
           </div>
-          <p className="text-[var(--nc-fg-dim)] text-sm">
-            Minere, modele e gerencie suas ofertas vencedoras.
+          {/* Título grande */}
+          <h1 className="text-4xl font-semibold text-white mb-2">
+            NoCry <span className="text-white/40 font-light">//</span> Ofertas
+          </h1>
+          {/* Descrição */}
+          <p className="text-sm text-white/60">
+            Minere, organize e acompanhe o fluxo das suas ofertas.
           </p>
         </div>
 
-        {/* Métricas */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <StatCard label="Em análise" value={stats.emAnalise} delay={0.1} />
-          <StatCard label="Aprovadas" value={stats.aprovadas} delay={0.2} />
-          <StatCard label="Em produção" value={stats.emProducao} delay={0.3} />
-          <StatCard label="Pausadas" value={stats.pausadas} delay={0.4} />
-        </div>
-
-        {/* Busca + CTA */}
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--nc-fg-dim)]" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar ofertas... (⌘K)"
-              className="nc-glass nc-focus-ring w-full rounded-2xl border border-white/10 bg-white/5 pl-11 pr-4 py-3 text-[var(--nc-fg)] placeholder:text-[var(--nc-fg-dim)] focus:outline-none focus:ring-2 focus:ring-[var(--nc-cyan)]/50"
-            />
+        {/* Direita: Badge e botão alinhados à direita */}
+        <div className="flex flex-col items-end gap-3 lg:items-end">
+          {/* Badge "X ativos" */}
+          <div className="flex items-center gap-2 bg-gradient-to-br from-[#D4AF37]/20 to-[#D4AF37]/10 border border-[#D4AF37]/30 rounded-full px-4 py-2">
+            <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
+            <span className="text-sm font-medium text-[#D4AF37]">
+              {totalAtivos} ativo{totalAtivos !== 1 ? 's' : ''}
+            </span>
           </div>
+
+          {/* Botão "Nova Oferta" */}
           <motion.button
             onClick={onCreateClick}
-            whileHover={{ scale: 1.02, filter: 'brightness(1.01)' }}
+            whileHover={{ scale: 1.02, y: -2 }}
             whileTap={{ scale: 0.98 }}
-            className="nc-focus-ring rounded-2xl px-6 py-3 font-semibold text-[#101216] shadow-[0_14px_34px_-16px_rgba(212,175,55,0.55)] transition-all"
+            className="rounded-full px-6 py-3 font-semibold text-black shadow-[0_8px_24px_-8px_rgba(212,175,55,0.4)] transition-all"
             style={{
               background: 'linear-gradient(90deg, #FFD36A 0%, #D4AF37 100%)',
             }}
@@ -160,7 +65,25 @@ export function Hero({ onCreateClick, stats }: HeroProps) {
           </motion.button>
         </div>
       </div>
-    </motion.section>
+
+      {/* Linha da busca: ocupando largura total */}
+      <div className="mb-3">
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Buscar ofertas… (⌘K)"
+            className="w-full rounded-full bg-black/30 border border-white/5 pl-11 pr-4 py-3 text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/30 focus:border-[#D4AF37]/30 transition-all"
+          />
+        </div>
+      </div>
+
+      {/* Linha de resumo de contagens: texto simples */}
+      <div className="text-xs text-white/40 mb-4">
+        Em análise: {stats.emAnalise} · Aprovadas: {stats.aprovadas} · Em produção: {stats.emProducao} · Pausadas: {stats.pausadas}
+      </div>
+    </>
   )
 }
-

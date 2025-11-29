@@ -26,7 +26,24 @@ export function BottomBar() {
       >
         <div className="flex h-full items-center justify-around px-2 relative">
           {tabs.map((tab) => {
-            const isActive = pathname === tab.path || (tab.path !== '/' && pathname.startsWith(tab.path))
+            // Verificar se há um tab mais específico que corresponde ao pathname atual
+            const hasMoreSpecificMatch = tabs.some(
+              (otherTab) =>
+                otherTab.path !== tab.path &&
+                otherTab.path.length > tab.path.length &&
+                otherTab.path.startsWith(tab.path + '/') &&
+                (pathname === otherTab.path || pathname.startsWith(otherTab.path + '/'))
+            )
+            
+            // Item está ativo se:
+            // 1. Pathname é exatamente igual ao path do tab, OU
+            // 2. Pathname começa com o path do tab (mas não é exatamente igual) E não há um tab mais específico que também corresponde
+            const isActive =
+              pathname === tab.path ||
+              (tab.path !== '/' &&
+                pathname !== tab.path &&
+                pathname.startsWith(tab.path + '/') &&
+                !hasMoreSpecificMatch)
             return (
               <TabItem
                 key={tab.path}

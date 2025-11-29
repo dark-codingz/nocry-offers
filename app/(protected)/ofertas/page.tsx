@@ -36,20 +36,24 @@ export default function OfertasPage() {
     }
   }, [offers])
 
+  const totalAtivos = stats.emAnalise + stats.aprovadas + stats.emProducao + stats.pausadas
+
   return (
     <div className={`${manrope.className} min-h-screen w-full max-w-full`}>
-      {/* Safe area: conteúdo não fica coberto pelo trigger */}
-      <div className="px-6 pb-8 pt-6 mt-[64px] sm:mt-8 w-full max-w-full">
-        {/* Hero funcional */}
-        <Hero onCreateClick={() => setCreateDialogOpen(true)} stats={stats} />
+      {/* Container centralizado - header solto no fundo preto */}
+      <div className="w-full px-6 pb-12 pt-8">
+        {/* Header: título, badge, botão, busca, filtros - tudo solto no fundo preto */}
+        <Hero onCreateClick={() => setCreateDialogOpen(true)} stats={stats} totalAtivos={totalAtivos} />
 
-        {/* Toolbar avançada */}
+        {/* Toolbar: filtros em pills - também solto no fundo preto */}
         <Toolbar resultCount={offers.length} />
 
-        {/* Board wrapper */}
-        <section className="relative w-full max-w-full overflow-x-auto overscroll-x-contain">
-          <KanbanBoard onCreateClick={() => setCreateDialogOpen(true)} />
-        </section>
+        {/* Board Kanban: apenas ele fica dentro de um container cinza */}
+        <div className="mt-8 bg-[#0a0a0c] rounded-3xl border border-white/5 shadow-[0_8px_32px_rgba(0,0,0,0.4)] p-6">
+          <section className="relative w-full max-w-full overflow-x-auto overscroll-x-contain">
+            <KanbanBoard onCreateClick={() => setCreateDialogOpen(true)} />
+          </section>
+        </div>
       </div>
 
       {/* Modal de criação */}

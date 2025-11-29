@@ -21,6 +21,41 @@ body,
   --rail-w-collapsed: 84px;
   --rail-w-expanded: 260px;
   --nav-dock-size: 56px;
+
+  /* ===== DESIGN SYSTEM - EDITOR DARK PREMIUM ===== */
+  /* Fundo */
+  --bg-body: #05060A;
+  --bg-elevated: #0C0F17;
+  --bg-subtle: #141824;
+  --bg-card: #101520;
+  --bg-input: #050814;
+
+  /* Acentos dourados */
+  --gold: #FACC15;
+  --gold-soft: #EAB308;
+  --gold-soft-transparent: rgba(250, 204, 21, 0.15);
+
+  /* Texto */
+  --text-main: #F9FAFB;
+  --text-muted: #9CA3AF;
+  --text-soft: #6B7280;
+
+  /* Bordas / divisores */
+  --border-subtle: rgba(148, 163, 184, 0.18);
+  --border-medium: rgba(148, 163, 184, 0.25);
+  --border-strong: rgba(148, 163, 184, 0.4);
+
+  /* Estados */
+  --danger: #F87171;
+  --success: #4ADE80;
+
+  /* Radius & spacing padrão */
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
 }
 
 @media (max-width: 640px) {
@@ -513,5 +548,176 @@ html.dark {
   select option:checked {
     background-color: #2a3038;
     color: #E8EAED;
+  }
+
+  /* Scrollbar customizada NoCry - discreta e sobreposta */
+  .nocry-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+  }
+
+  .nocry-scroll::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .nocry-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .nocry-scroll::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.25);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .nocry-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(148, 163, 184, 0.4);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  /* Scrollbar customizada para o editor */
+  .editor-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .editor-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .editor-scroll::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.35);
+    border-radius: 999px;
+  }
+
+  .editor-scroll:hover::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.65);
+  }
+
+  /* ===== CLASSES UTILITÁRIAS DO EDITOR ===== */
+  /* Cards do editor */
+  .editor-card {
+    background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-subtle);
+    padding: var(--spacing-lg);
+    transition: all 0.15s ease;
+  }
+
+  .editor-card:hover {
+    border-color: var(--border-medium);
+  }
+
+  /* Inputs do editor */
+  .editor-input {
+    background: var(--bg-input);
+    border-radius: 8px;
+    border: 1px solid var(--border-strong);
+    padding: 8px 10px;
+    font-size: 13px;
+    color: var(--text-main);
+    width: 100%;
+    transition: all 0.15s ease;
+  }
+
+  .editor-input:focus {
+    outline: none;
+    border-color: var(--gold);
+    box-shadow: 0 0 0 1px var(--gold-soft-transparent);
+  }
+
+  .editor-input::placeholder {
+    color: var(--text-soft);
+  }
+
+  /* Botões do editor */
+  .editor-btn-primary {
+    background: var(--gold);
+    color: #000000;
+    border-radius: var(--radius-md);
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.15s ease;
+    border: none;
+    cursor: pointer;
+  }
+
+  .editor-btn-primary:hover {
+    background: var(--gold-soft);
+  }
+
+  .editor-btn-secondary {
+    background: transparent;
+    color: var(--text-main);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.15s ease;
+    cursor: pointer;
+  }
+
+  .editor-btn-secondary:hover {
+    border-color: var(--border-medium);
+    background: rgba(148, 163, 184, 0.05);
+  }
+
+  /* Block items da sidebar */
+  .editor-block-item {
+    background: var(--bg-card);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-medium);
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: grab;
+    transition: all 0.15s ease;
+  }
+
+  .editor-block-item:hover {
+    border-color: var(--gold-soft);
+    box-shadow: 0 0 0 1px var(--gold-soft-transparent);
+    transform: translateY(-1px);
+  }
+
+  .editor-block-item:active {
+    cursor: grabbing;
+  }
+
+  .editor-block-item__icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.85);
+    flex-shrink: 0;
+  }
+
+  /* Prop cards da sidebar direita */
+  .editor-prop-card {
+    background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-subtle);
+    padding: var(--spacing-lg) var(--spacing-lg) var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+  }
+
+  .editor-prop-card__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-main);
+    margin-bottom: 8px;
+  }
+
+  .editor-prop-card__description {
+    font-size: 11px;
+    color: var(--text-soft);
+    margin-bottom: 8px;
   }
 }

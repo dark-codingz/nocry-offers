@@ -1,4 +1,4 @@
-import { Home, LayoutGrid, Copy, LineChart, Settings, Search, BarChart3, type LucideIcon } from 'lucide-react'
+import { Home, LayoutGrid, Copy, LineChart, Settings, Search, BarChart3, Activity, type LucideIcon } from 'lucide-react'
 
 export interface TabConfig {
   path: string
@@ -13,6 +13,7 @@ export interface TabConfig {
 export const TABS: TabConfig[] = [
   { path: '/', label: 'Home', icon: Home, badge: 0, isDev: true },
   { path: '/ofertas', label: 'Ofertas', icon: LayoutGrid, badge: '•' },
+  { path: '/ofertas/tracking', label: 'Tracking', icon: Activity, badge: 0 },
   { path: '/clone', label: 'Clone', icon: Copy, badge: 0 },
   { path: '/funilspy', label: 'Funil Spy', icon: Search, badge: 0 },
   { path: '/finance', label: 'Finance', icon: LineChart, badge: 0, isExternal: true, externalUrl: 'https://theresnocry.com/' },
