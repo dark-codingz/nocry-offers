@@ -459,3 +459,10 @@ function generateSelector(sel: SelectedElement | null): string {
 
 O editor agora é muito mais inteligente e o ZIP contém tudo que o usuário precisa!
 
+
+
+
+
+
+
+

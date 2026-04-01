@@ -320,3 +320,10 @@ Todos os blocos agora têm estilos inline que garantem layout em coluna:
 
 Sistema profissional de edição de landing pages com controle total sobre estrutura, ordem e dimensões dos elementos!
 
+
+
+
+
+
+
+

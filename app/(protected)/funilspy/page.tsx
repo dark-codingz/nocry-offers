@@ -161,7 +161,7 @@ export default function FunilSpyPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0f1419] text-white p-4 md:p-8">
+    <div className="min-h-screen bg-[#171717] text-white p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -172,7 +172,7 @@ export default function FunilSpyPage() {
         </div>
 
         {/* Formulário de busca */}
-        <div className="bg-[#1b2128] border border-white/10 rounded-lg p-6 mb-6">
+        <div className="bg-[#202020] border border-white/10 rounded-lg p-6 mb-6">
           <div className="flex flex-col md:flex-row gap-3">
             <input
               type="text"
@@ -180,13 +180,13 @@ export default function FunilSpyPage() {
               onChange={(e) => setDomain(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder="exemplo.com ou https://example.com"
-              className="flex-1 px-4 py-2 bg-[#0f1419] border border-white/10 rounded-md text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="flex-1 px-4 py-2 bg-[#171717] border border-white/10 rounded-md text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-[#D4AF37]/50 focus:border-transparent"
               disabled={loading || dorkLoading}
             />
             <button
               onClick={handleSearch}
               disabled={loading || dorkLoading || !domain.trim()}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 disabled:cursor-not-allowed rounded-md font-medium flex items-center justify-center gap-2 transition-colors"
+              className="px-6 py-2 bg-[#D4AF37]/20 border border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37]/30 disabled:opacity-50 disabled:cursor-not-allowed rounded-md font-medium flex items-center justify-center gap-2 transition-colors"
             >
               {(loading || dorkLoading) ? (
                 <>
@@ -204,9 +204,10 @@ export default function FunilSpyPage() {
         </div>
 
         {/* Aviso discreto */}
-        <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 mb-6">
-          <p className="text-xs text-yellow-200/80">
-          We see everything - There's NoCry
+        <div className="bg-[#D4AF37]/10 border border-[#D4AF37]/20 rounded-lg p-3 mb-6">
+          <p className="text-xs text-[#D4AF37]/80 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#D4AF37] animate-pulse"></span>
+            We see everything - There's NoCry
           </p>
         </div>
 
@@ -238,10 +239,10 @@ export default function FunilSpyPage() {
 
         {/* Seção 1: Resultados CRT.sh */}
         {crtData && (
-          <div className="bg-[#1b2128] border border-white/10 rounded-lg p-6 mb-6">
+          <div className="bg-[#202020] border border-white/10 rounded-lg p-6 mb-6">
             <div className="mb-4">
               <h2 className="text-xl font-semibold mb-2">
-                Scan Subdomoinios - Resultados para: <span className="text-blue-400">{crtData.domain}</span>
+                Scan Subdomoinios - Resultados para: <span className="text-[#D4AF37]">{crtData.domain}</span>
               </h2>
               <p className="text-white/60 text-sm">
                 {crtData.count === 0
@@ -278,7 +279,7 @@ export default function FunilSpyPage() {
                         key={`${result.hostname}-${index}`}
                         className="border-b border-white/5 hover:bg-white/5 transition-colors"
                       >
-                        <td className="py-3 px-4 text-sm font-mono text-blue-300">
+                        <td className="py-3 px-4 text-sm font-mono text-[#D4AF37]/80">
                           {result.hostname}
                         </td>
                         <td className="py-3 px-4 text-sm text-white/70">
@@ -314,10 +315,10 @@ export default function FunilSpyPage() {
 
         {/* Seção 2: Resultados Pesquisa Web (Dorks) */}
         {dorkData && (
-          <div className="bg-[#1b2128] border border-white/10 rounded-lg p-6">
+          <div className="bg-[#202020] border border-white/10 rounded-lg p-6">
             <div className="mb-4">
               <h2 className="text-xl font-semibold mb-2">
-                Scan Pages - <span className="text-blue-400">{dorkData.domain}</span>
+                Scan Pages - <span className="text-[#D4AF37]">{dorkData.domain}</span>
               </h2>
               <p className="text-white/60 text-sm">
                 {dorkData.count === 0
@@ -340,13 +341,13 @@ export default function FunilSpyPage() {
                             href={result.link}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-blue-400 hover:text-blue-300 font-medium text-sm mb-2 block truncate"
+                            className="text-[#D4AF37] hover:text-[#D4AF37]/80 font-medium text-sm mb-2 block truncate"
                           >
                             {result.title || 'Sem título'}
                             <ExternalLink className="w-3 h-3 inline-block ml-1" />
                           </a>
                         ) : (
-                          <p className="text-blue-400 font-medium text-sm mb-2 truncate">
+                          <p className="text-[#D4AF37] font-medium text-sm mb-2 truncate">
                             {result.title || 'Sem título'}
                           </p>
                         )}
@@ -382,9 +383,9 @@ export default function FunilSpyPage() {
 
         {/* Loading Dorks separado */}
         {dorkLoading && !dorkData && (
-          <div className="bg-[#1b2128] border border-white/10 rounded-lg p-6">
+          <div className="bg-[#202020] border border-white/10 rounded-lg p-6">
             <div className="flex items-center gap-3">
-              <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+              <Loader2 className="w-5 h-5 animate-spin text-[#D4AF37]" />
               <p className="text-white/60">Buscando resultados web...</p>
             </div>
           </div>

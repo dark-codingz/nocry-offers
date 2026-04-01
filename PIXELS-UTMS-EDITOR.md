@@ -455,3 +455,10 @@ doc.head.appendChild(newScript)
 
 Agora é possível gerenciar tracking diretamente no editor visual!
 
+
+
+
+
+
+
+

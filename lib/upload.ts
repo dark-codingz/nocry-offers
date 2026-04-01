@@ -1,6 +1,7 @@
 'use client'
 
 import { createClient } from '@/lib/supabase/client'
+import { STORAGE_BUCKET } from './constants'
 import { slugifyBase, extFromFile } from './upload-utils'
 
 export interface UploadProgress {
@@ -39,7 +40,7 @@ export async function uploadFile(
 
     // Upload para Supabase Storage
     const { data, error } = await supabase.storage
-      .from('offers-files')
+      .from(STORAGE_BUCKET)
       .upload(fileKey, file, {
         cacheControl: '3600',
         upsert: false,
@@ -55,7 +56,7 @@ export async function uploadFile(
     onProgress?.({ loaded: file.size, total: file.size, percentage: 100 })
 
     // Obter URL pública completa
-    const { data: publicData } = supabase.storage.from('offers-files').getPublicUrl(data.path)
+    const { data: publicData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(data.path)
 
     // Retornar URL pública completa para salvar no banco
     return {
@@ -177,7 +178,7 @@ function formatDuration(seconds: number): string {
  */
 export function getDownloadUrl(fileKey: string, fileName: string): string {
   const supabase = createClient()
-  const { data } = supabase.storage.from('offers-files').getPublicUrl(fileKey, {
+  const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(fileKey, {
     download: fileName,
   })
   return data.publicUrl

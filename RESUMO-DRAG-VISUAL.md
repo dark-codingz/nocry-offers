@@ -311,3 +311,10 @@ Problema: Imagem muito grande
 
 Sistema intuitivo de reorganização com feedback visual em tempo real!
 
+
+
+
+
+
+
+

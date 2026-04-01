@@ -18,7 +18,7 @@ import { DroppableColumn } from './droppable-column'
 import { OfferCard } from './offer-card'
 import type { Offer, OfferStatus } from '@/lib/types'
 import { useOffers } from '@/hooks/use-offers'
-import { useToast } from '@/hooks/use-toast'
+import { toast } from 'sonner'
 import { KanbanSkeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
 
@@ -43,7 +43,6 @@ interface KanbanBoardProps {
 
 export function KanbanBoard({ initialOffers = [], onCreateClick }: KanbanBoardProps) {
   const { offers, loading, error, updateOfferStatus } = useOffers()
-  const { showToast } = useToast()
   const [activeOffer, setActiveOffer] = useState<Offer | null>(null)
   const [board, setBoard] = useState<BoardState>(() => {
     const initial: BoardState = {
@@ -51,7 +50,7 @@ export function KanbanBoard({ initialOffers = [], onCreateClick }: KanbanBoardPr
       'Em análise': { id: 'Em análise', title: 'Em análise', items: [] },
       'Modelando': { id: 'Modelando', title: 'Modelando', items: [] },
       'Rodando': { id: 'Rodando', title: 'Rodando', items: [] },
-      'Encerrada': { id: 'Encerrada', title: 'Encerrada', items: [] },
+      'Encerrada': { id: 'Encerrada', title: 'Finalizada', items: [] },
     }
     
     initialOffers.forEach(offer => {
@@ -70,7 +69,7 @@ export function KanbanBoard({ initialOffers = [], onCreateClick }: KanbanBoardPr
         'Em análise': { id: 'Em análise', title: 'Em análise', items: [] },
         'Modelando': { id: 'Modelando', title: 'Modelando', items: [] },
         'Rodando': { id: 'Rodando', title: 'Rodando', items: [] },
-        'Encerrada': { id: 'Encerrada', title: 'Encerrada', items: [] },
+        'Encerrada': { id: 'Encerrada', title: 'Finalizada', items: [] },
       }
       
       offers.forEach(offer => {
@@ -161,9 +160,9 @@ export function KanbanBoard({ initialOffers = [], onCreateClick }: KanbanBoardPr
     const result = await updateOfferStatus(moving.id, toCol)
     
     if (result.success) {
-      showToast('Status atualizado com sucesso', 'success')
+      toast.success('Status atualizado com sucesso')
     } else {
-      showToast(result.error || 'Falha ao atualizar status', 'error')
+      toast.error(result.error || 'Falha ao atualizar status')
       // Rollback
       setBoard(prev => ({
         ...prev,
@@ -213,7 +212,7 @@ export function KanbanBoard({ initialOffers = [], onCreateClick }: KanbanBoardPr
         {Object.values(board).map((col) => (
           <DroppableColumn key={col.id} id={col.id}>
             <SortableContext items={col.items.map(i => i.id)} strategy={verticalListSortingStrategy}>
-              <KanbanColumn status={col.id} offers={col.items} />
+              <KanbanColumn title={col.title} status={col.id} offers={col.items} />
             </SortableContext>
           </DroppableColumn>
         ))}

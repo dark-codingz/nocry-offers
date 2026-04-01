@@ -463,3 +463,10 @@ function redo() {
 
 **Editor visual completo e funcional! 🎨**
 
+
+
+
+
+
+
+

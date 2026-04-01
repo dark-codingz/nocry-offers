@@ -349,3 +349,10 @@ const [activeTab, setActiveTab] = useState<EditorTab>('geral')
 
 Editor visual agora está mais organizado, intuitivo e funcional!
 
+
+
+
+
+
+
+

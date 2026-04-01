@@ -51,3 +51,10 @@ COMMENT ON COLUMN public.cloned_pages.html IS 'HTML da página (editável)';
 COMMENT ON COLUMN public.cloned_pages.css IS 'CSS customizado (futuro)';
 COMMENT ON COLUMN public.cloned_pages.js IS 'JavaScript customizado (futuro)';
 
+
+
+
+
+
+
+

@@ -25,16 +25,11 @@ export default async function ProtectedLayout({
 
   return (
     <div 
-      className="min-h-screen text-white w-full max-w-full overflow-x-hidden" 
-      style={{ 
-        backgroundColor: '#020204',
-        backgroundImage: 'radial-gradient(circle at center, rgba(5, 5, 8, 0.8) 0%, #020204 100%)',
-        backgroundAttachment: 'fixed',
-      }}
+      className="min-h-screen text-white w-full max-w-full overflow-x-hidden bg-[#171717]"
     >
       <StorageDiagnostics />
       <AppNav>
-        <main className="w-full max-w-full lg:pl-20 pb-16 lg:pb-0" style={{ minHeight: '100dvh' }}>
+        <main className="w-full max-w-full lg:pl-[64px] pb-16 lg:pb-0" style={{ minHeight: '100dvh' }}>
           {children}
         </main>
       </AppNav>

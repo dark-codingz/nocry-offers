@@ -682,3 +682,10 @@ payload: {
 
 Sistema intuitivo de reorganização visual com feedback em tempo real e controle preciso de dimensões!
 
+
+
+
+
+
+
+

@@ -10,6 +10,7 @@ import { DetalhesPixelSection } from './detalhes-pixel-section'
 import { DetalhesCriativosSection } from './detalhes-criativos-section'
 import { DetalhesEntregaveisSection } from './detalhes-entregaveis-section'
 import { DetalhesUpsellsSection } from './detalhes-upsells-section'
+import { CopysList } from '@/components/ofertas/copys/copys-list'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useGsapOnce } from '@/hooks/use-gsap-once'
 import { useRef } from 'react'
@@ -19,7 +20,7 @@ interface GerenciamentoTabsProps {
 }
 
 export function GerenciamentoTabs({ offer }: GerenciamentoTabsProps) {
-  const [activeTab, setActiveTab] = useState<'gerenciamento' | 'detalhes'>('gerenciamento')
+  const [activeTab, setActiveTab] = useState<'gerenciamento' | 'copys' | 'detalhes'>('gerenciamento')
   const underlineRef = useRef<HTMLDivElement>(null)
 
   // Animar underline com GSAP sheen
@@ -78,6 +79,30 @@ export function GerenciamentoTabs({ offer }: GerenciamentoTabsProps) {
               />
             )}
           </button>
+          
+          <button
+            onClick={() => setActiveTab('copys')}
+            className={`tab flex-1 relative px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === 'copys'
+                ? 'text-[var(--fg)]'
+                : 'text-[var(--fg-dim)] hover:text-[var(--fg)]'
+            }`}
+          >
+            Copys
+            {activeTab === 'copys' && (
+              <motion.div
+                layoutId="activeTabUnderline"
+                className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--gold)]"
+                initial={{ scaleX: 0 }}
+                animate={{ scaleX: 1 }}
+                transition={{ duration: 0.3 }}
+                style={{
+                  backgroundSize: '200% 100%',
+                }}
+              />
+            )}
+          </button>
+
           <button
             onClick={() => setActiveTab('detalhes')}
             className={`tab flex-1 relative px-4 py-2 text-sm font-medium transition-colors ${
@@ -131,6 +156,16 @@ export function GerenciamentoTabs({ offer }: GerenciamentoTabsProps) {
               <h3 className="section-title mb-4 text-[var(--fg)]">Ideias e anotações</h3>
               <p className="text-sm text-[var(--fg-dim)]">Em breve...</p>
             </div>
+          </motion.div>
+        ) : activeTab === 'copys' ? (
+          <motion.div
+            key="copys"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3 }}
+          >
+            <CopysList offerId={offer.id} />
           </motion.div>
         ) : (
           <motion.div

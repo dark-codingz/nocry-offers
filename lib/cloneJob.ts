@@ -5,6 +5,8 @@ import archiver from 'archiver'
 import { load, type CheerioAPI } from 'cheerio'
 import axios from 'axios'
 import mime from 'mime-types'
+import { detectSpaFramework } from './detectSpaFramework'
+import { createEditableStaticHtmlFromSpa } from './sanitizeSpaHtml'
 
 // Detecção centralizada de ambiente
 export const IS_VERCEL =
@@ -21,6 +23,9 @@ export type CloneJobResult = {
   workDir: string
   finalHtml: string
   publicBasePath: string
+  isSpaFramework: boolean
+  editableHtml: string
+  rawHtml: string // HTML original antes de qualquer processamento
 }
 
 /**
@@ -56,11 +61,18 @@ function stripQueryAndHash(p: string) {
   return p.slice(0, end)
 }
 
-function toLocalPathFromUrl(assetUrl: URL) {
+function toLocalPathFromUrl(assetUrl: URL, baseOrigin?: string) {
   let localPath = assetUrl.pathname || '/'
   localPath = stripQueryAndHash(localPath)
+  
   if (localPath.startsWith('/')) localPath = localPath.slice(1)
   if (localPath.endsWith('/')) localPath = localPath.slice(0, -1)
+  
+  // Anti-colisão de hosts externos
+  if (baseOrigin && assetUrl.origin !== baseOrigin) {
+    localPath = assetUrl.hostname + '/' + (localPath || '')
+  }
+
   if (!localPath) {
     const ext = mime.extension(assetUrl.searchParams.get('format') || '') || 'bin'
     localPath = `file.${ext}`
@@ -84,7 +96,7 @@ async function downloadBinary(url: string, timeoutMs = 15000) {
     responseType: 'arraybuffer',
     timeout: timeoutMs,
     headers: {
-      'User-Agent': 'NoCryCloneBot/1.0',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       Accept: '*/*',
     },
     maxRedirects: 5,
@@ -129,7 +141,7 @@ async function rewriteCssUrls(
   const sameOrigin = (u: URL) => u.origin === base.origin
 
   // Obter o caminho relativo do CSS dentro do workDir para calcular URLs relativas
-  const cssLocalPath = toLocalPathFromUrl(cssUrl)
+  const cssLocalPath = toLocalPathFromUrl(cssUrl, base.origin)
   const cssDir = path.dirname(cssLocalPath)
 
   const replaced = cssContent.replace(urlRegex, (match, _q, p2) => {
@@ -143,8 +155,9 @@ async function rewriteCssUrls(
     } catch {
       return match
     }
-    if (!sameOrigin(resolved)) return match
-    const local = toLocalPathFromUrl(resolved)
+    
+    // Bypass de sameOrigin liberado para baixar fontes e imagens de dentro de CDN CSS.
+    const local = toLocalPathFromUrl(resolved, base.origin)
     downloads.push({ src: resolved, localPath: local })
     
     // Calcular caminho relativo do CSS para o asset
@@ -201,7 +214,10 @@ export async function runCloneJob(url: string): Promise<CloneJobResult> {
 
   // Buscar HTML
   const response = await fetch(url, {
-    headers: { 'User-Agent': 'NoCryCloneBot/1.0', Accept: 'text/html,*/*' },
+    headers: { 
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8' 
+    },
     redirect: 'follow',
   })
 
@@ -210,6 +226,14 @@ export async function runCloneJob(url: string): Promise<CloneJobResult> {
   }
 
   const html = await response.text()
+
+  // Detectar se é SPA/Next.js/React
+  const isSpaFramework = detectSpaFramework(html)
+  
+  // Gerar versão editável (sem scripts do framework) se for SPA
+  const editableHtml = isSpaFramework 
+    ? createEditableStaticHtmlFromSpa(html)
+    : html
 
   // Criar diretório de trabalho
   const jobId = `clone-${Date.now()}-${randomId()}`
@@ -221,8 +245,9 @@ export async function runCloneJob(url: string): Promise<CloneJobResult> {
   await fs.promises.mkdir(CLONE_JOBS_ROOT, { recursive: true })
   await fs.promises.mkdir(workDir, { recursive: true })
 
-  // Parse HTML e coleta assets
-  const $ = load(html)
+  // Parse HTML e coleta assets (usar editableHtml para SPA, html original para outros)
+  const htmlToProcess = isSpaFramework ? editableHtml : html
+  const $ = load(htmlToProcess)
   type AssetRef = {
     url: URL
     attrOwner?: { el: any; attr: string }
@@ -252,7 +277,7 @@ export async function runCloneJob(url: string): Promise<CloneJobResult> {
     } catch {
       return
     }
-    if (!sameOrigin(resolved)) return
+    // Bypass: Extrai mesmo que origin seja deferente (CDNs externos).
     const key = resolved.toString()
     if (visited.has(key)) return
     visited.add(key)
@@ -280,7 +305,7 @@ export async function runCloneJob(url: string): Promise<CloneJobResult> {
   const downloads: { src: URL; localPath: string; kind: AssetRef['kind'] }[] = []
 
   for (const a of assets) {
-    const localPath = toLocalPathFromUrl(a.url)
+    const localPath = toLocalPathFromUrl(a.url, base.origin)
     downloads.push({ src: a.url, localPath, kind: a.kind })
   }
 
@@ -290,8 +315,8 @@ export async function runCloneJob(url: string): Promise<CloneJobResult> {
     try {
       const data = await downloadBinary(item.src.toString())
       await fs.promises.writeFile(filePath, data)
-    } catch {
-      // Falha de um asset não deve abortar todo o job
+    } catch (err: any) {
+      console.error(`[CloneJob] Falha ao baixar asset base: ${item.src.toString()}`, err?.message)
     }
   })
 
@@ -316,8 +341,7 @@ export async function runCloneJob(url: string): Promise<CloneJobResult> {
     if (!href) return
     try {
       const resolved = new URL(href, base)
-      if (!sameOrigin(resolved)) return
-      replaceAttr($, el, 'href', toLocalPathFromUrl(resolved))
+      replaceAttr($, el, 'href', toLocalPathFromUrl(resolved, base.origin))
     } catch {}
   })
   $('script[src]').each((_, el) => {
@@ -325,8 +349,7 @@ export async function runCloneJob(url: string): Promise<CloneJobResult> {
     if (!src) return
     try {
       const resolved = new URL(src, base)
-      if (!sameOrigin(resolved)) return
-      replaceAttr($, el, 'src', toLocalPathFromUrl(resolved))
+      replaceAttr($, el, 'src', toLocalPathFromUrl(resolved, base.origin))
     } catch {}
   })
   $('img[src]').each((_, el) => {
@@ -334,8 +357,7 @@ export async function runCloneJob(url: string): Promise<CloneJobResult> {
     if (!src) return
     try {
       const resolved = new URL(src, base)
-      if (!sameOrigin(resolved)) return
-      replaceAttr($, el, 'src', toLocalPathFromUrl(resolved))
+      replaceAttr($, el, 'src', toLocalPathFromUrl(resolved, base.origin))
     } catch {}
   })
   $('img[srcset]').each((_, el) => {
@@ -349,8 +371,7 @@ export async function runCloneJob(url: string): Promise<CloneJobResult> {
         if (!u) return entry
         try {
           const resolved = new URL(u, base)
-          if (!sameOrigin(resolved)) return entry
-          return `${toLocalPathFromUrl(resolved)}${d ? ' ' + d : ''}`
+          return `${toLocalPathFromUrl(resolved, base.origin)}${d ? ' ' + d : ''}`
         } catch {
           return entry
         }
@@ -363,8 +384,7 @@ export async function runCloneJob(url: string): Promise<CloneJobResult> {
       if (!src) return
       try {
         const resolved = new URL(src, base)
-        if (!sameOrigin(resolved)) return
-        replaceAttr($, el, 'src', toLocalPathFromUrl(resolved))
+        replaceAttr($, el, 'src', toLocalPathFromUrl(resolved, base.origin))
       } catch {}
     })
   })
@@ -377,6 +397,9 @@ export async function runCloneJob(url: string): Promise<CloneJobResult> {
     workDir,
     finalHtml,
     publicBasePath,
+    isSpaFramework,
+    editableHtml: isSpaFramework ? editableHtml : finalHtml,
+    rawHtml: html, // HTML original antes de qualquer processamento
   }
 }
 
@@ -449,6 +472,35 @@ export function getJobPaths(jobId: string) {
 }
 
 /**
+ * Reconstrói uma URL absoluta a partir de um path potencialmente já processado com toLocalPathFromUrl.
+ * Resolve colisão de pastas duplas (/PV01/PV01/) e reconhece CDNs externos ("cdn.utmify.com/...").
+ */
+function reconstructAbsoluteUrl(trimmed: string, base: URL): URL {
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('//')) {
+    return new URL(trimmed, base)
+  }
+  
+  // Caminhos com origin duplicado (ex: origin.com/styles.css)
+  const firstSlash = trimmed.indexOf('/')
+  const firstPart = firstSlash > -1 ? trimmed.slice(0, firstSlash) : trimmed
+  
+  // Se a primeira pasta possui ponto, não é css/js/png, presumimos que é um hostname de CDN externo
+  if (firstPart.includes('.') && 
+      firstPart.length > 4 && 
+      !firstPart.endsWith('.css') && 
+      !firstPart.endsWith('.js') && 
+      !firstPart.endsWith('.html') &&
+      !firstPart.endsWith('.png') &&
+      !firstPart.endsWith('.jpg')) {
+    return new URL(`https://${trimmed}`)
+  }
+  
+  // Se for path interno que perdeu o slash inicial, restauramos para amarrar direto no origin
+  const normalizedPath = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+  return new URL(normalizedPath, base.origin)
+}
+
+/**
  * Baixa todos os assets de uma landing page e reescreve o HTML para usar caminhos relativos
  * @param options - Opções de download
  * @returns HTML reescrito com caminhos relativos
@@ -494,11 +546,11 @@ export async function downloadLandingToDir(options: {
       return
     let resolved: URL
     try {
-      resolved = new URL(trimmed, base)
+      resolved = reconstructAbsoluteUrl(trimmed, base)
     } catch {
       return
     }
-    if (!sameOrigin(resolved)) return
+    // Bypass liberado para download de CDNs em ZIPs
     const key = resolved.toString()
     if (visited.has(key)) return
     visited.add(key)
@@ -527,7 +579,7 @@ export async function downloadLandingToDir(options: {
   const downloads: { src: URL; localPath: string; kind: AssetRef['kind'] }[] = []
 
   for (const a of assets) {
-    const localPath = toLocalPathFromUrl(a.url)
+    const localPath = toLocalPathFromUrl(a.url, base.origin)
     downloads.push({ src: a.url, localPath, kind: a.kind })
   }
 
@@ -541,8 +593,8 @@ export async function downloadLandingToDir(options: {
     try {
       const data = await downloadBinary(item.src.toString())
       await fs.promises.writeFile(filePath, data)
-    } catch {
-      // Falha de um asset não deve abortar todo o job
+    } catch (err: any) {
+      console.error(`[ZIP Engine] Falha ao baixar asset do ZIP: ${item.src.toString()}`, err?.message)
     }
   })
 
@@ -571,9 +623,8 @@ export async function downloadLandingToDir(options: {
     const href = $(el).attr('href')
     if (!href) return
     try {
-      const resolved = new URL(href, base)
-      if (!sameOrigin(resolved)) return
-      const localPath = toLocalPathFromUrl(resolved)
+      const resolved = reconstructAbsoluteUrl(href, base)
+      const localPath = toLocalPathFromUrl(resolved, base.origin)
       replaceAttr($, el, 'href', `${relativeAssetsPrefix}/${localPath}`)
     } catch {}
   })
@@ -581,19 +632,23 @@ export async function downloadLandingToDir(options: {
     const src = $(el).attr('src')
     if (!src) return
     try {
-      const resolved = new URL(src, base)
-      if (!sameOrigin(resolved)) return
-      const localPath = toLocalPathFromUrl(resolved)
+      const resolved = reconstructAbsoluteUrl(src, base)
+      const localPath = toLocalPathFromUrl(resolved, base.origin)
       replaceAttr($, el, 'src', `${relativeAssetsPrefix}/${localPath}`)
     } catch {}
   })
   $('img[src]').each((_, el) => {
     const src = $(el).attr('src')
     if (!src) return
+    
+    // Ignorar imagens que já apontam para assets/ (imagens editadas já processadas)
+    if (src.startsWith('assets/') || src.startsWith('./assets/') || src.includes('/assets/')) {
+      return
+    }
+    
     try {
-      const resolved = new URL(src, base)
-      if (!sameOrigin(resolved)) return
-      const localPath = toLocalPathFromUrl(resolved)
+      const resolved = reconstructAbsoluteUrl(src, base)
+      const localPath = toLocalPathFromUrl(resolved, base.origin)
       replaceAttr($, el, 'src', `${relativeAssetsPrefix}/${localPath}`)
     } catch {}
   })
@@ -607,9 +662,8 @@ export async function downloadLandingToDir(options: {
         const [u, d] = entry.split(' ')
         if (!u) return entry
         try {
-          const resolved = new URL(u, base)
-          if (!sameOrigin(resolved)) return entry
-          const localPath = toLocalPathFromUrl(resolved)
+          const resolved = reconstructAbsoluteUrl(u, base)
+          const localPath = toLocalPathFromUrl(resolved, base.origin)
           return `${relativeAssetsPrefix}/${localPath}${d ? ' ' + d : ''}`
         } catch {
           return entry
@@ -622,9 +676,8 @@ export async function downloadLandingToDir(options: {
       const src = $(el).attr('src')
       if (!src) return
       try {
-        const resolved = new URL(src, base)
-        if (!sameOrigin(resolved)) return
-        const localPath = toLocalPathFromUrl(resolved)
+        const resolved = reconstructAbsoluteUrl(src, base)
+        const localPath = toLocalPathFromUrl(resolved, base.origin)
         replaceAttr($, el, 'src', `${relativeAssetsPrefix}/${localPath}`)
       } catch {}
     })

@@ -2,7 +2,11 @@
 
 import { useParams, useRouter } from 'next/navigation'
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { ArrowLeft, Save, Download, RotateCcw } from 'lucide-react'
+import { ArrowLeft, Save, Download, RotateCcw, Hand, MousePointerClick, Upload, Link as LinkIcon, Image as ImageIcon } from 'lucide-react'
+import { detectTrackingScripts } from '@/lib/tracking/pixels'
+import { createClient } from '@/lib/supabase/client'
+import { uploadToOffersFiles } from '@/lib/supabase-storage'
+import { MediaLibraryModal } from '@/components/ui/media-library-modal'
 
 // Helper para classes condicionais
 function clsx(...args: (string | boolean | undefined | null)[]): string {
@@ -12,6 +16,19 @@ function clsx(...args: (string | boolean | undefined | null)[]): string {
 interface Clone {
   html: string
   original_url: string
+  isSpaFramework?: boolean
+}
+
+interface EditorPage {
+  id: string
+  originalUrl: string
+  path: string
+  isRoot: boolean
+  orderIndex: number
+  isSpaFramework: boolean
+  editableHtml: string
+  html: string
+  currentHtml?: string // HTML atual editado em memória
 }
 
 interface SelectedElement {
@@ -33,6 +50,10 @@ interface SelectedElement {
     marginTop?: string
     marginBottom?: string
   }
+  // Propriedades de link
+  linkElementId?: string | null // ID do elemento <a> (pode ser o próprio elemento ou um pai)
+  href?: string | null
+  target?: string | null
 }
 
 type ElementKind = 'button' | 'badge' | 'link' | 'heading' | 'image' | 'text' | 'other'
@@ -41,6 +62,7 @@ type TrackingInfo = {
   utmifyPixel?: {
     found: boolean
     pixelId: string | null
+    script: string | null // Script completo <script>...</script>
   }
   utmifyUtms?: {
     found: boolean
@@ -79,6 +101,7 @@ export default function EditorPage() {
   const [isTrackingModalOpen, setIsTrackingModalOpen] = useState(false)
   const [iframeLoaded, setIframeLoaded] = useState(false)
   const [imageUrl, setImageUrl] = useState('')
+  const [isMediaLibraryOpen, setIsMediaLibraryOpen] = useState(false)
   const [pageBgColor, setPageBgColor] = useState('#ffffff')
   const [outline, setOutline] = useState<OutlineItem[]>([])
   const [isDraggingId, setIsDraggingId] = useState<string | null>(null)
@@ -101,12 +124,50 @@ export default function EditorPage() {
   const bgColorInputRef = useRef<HTMLInputElement | null>(null)
   const textColorMenuRef = useRef<HTMLDivElement | null>(null)
   const bgColorMenuRef = useRef<HTMLDivElement | null>(null)
+  const [isInteractivePreview, setIsInteractivePreview] = useState(false)
+  const [showSpaNotice, setShowSpaNotice] = useState(false)
+  const [showSpaExportNotice, setShowSpaExportNotice] = useState(false)
+  
+  // Estados para multi-página
+  const [cloneGroupId, setCloneGroupId] = useState<string | null>(null)
+  const [origin, setOrigin] = useState<string | null>(null)
+  const [pages, setPages] = useState<EditorPage[]>([])
+  const [currentPageId, setCurrentPageId] = useState<string | null>(null)
+  
+  // Refs para acessar estado atualizado no handler de mensagens (evita closure stale)
+  const isInteractivePreviewRef = useRef(false)
+  const pagesRef = useRef<EditorPage[]>([])
+  const originRef = useRef<string>('')
+  
+  // Sincronizar refs com estado
+  useEffect(() => {
+    isInteractivePreviewRef.current = isInteractivePreview
+  }, [isInteractivePreview])
+  
+  useEffect(() => {
+    pagesRef.current = pages
+  }, [pages])
+  
+  useEffect(() => {
+    originRef.current = origin || ''
+  }, [origin])
 
-  // srcDoc memoizado - não muda quando o modo de viewport muda
+  // srcDoc memoizado - muda quando currentPageId muda
   const srcDoc = useMemo(() => {
     if (!clone) return ''
+    // Se temos páginas e currentPageId, usar o HTML da página atual
+    if (currentPageId && pages.length > 0) {
+      const currentPage = pages.find((p) => p.id === currentPageId)
+      if (currentPage) {
+        const htmlToUse = currentPage.isSpaFramework && currentPage.editableHtml
+          ? currentPage.editableHtml
+          : currentPage.html
+        return buildSrcDoc(htmlToUse, currentPage.originalUrl)
+      }
+    }
+    // Fallback: usar clone.html (comportamento antigo)
     return buildSrcDoc(clone.html, clone.original_url)
-  }, [clone?.html, clone?.original_url])
+  }, [clone?.html, clone?.original_url, currentPageId, pages])
 
   // Buscar clone
   useEffect(() => {
@@ -124,7 +185,57 @@ export default function EditorPage() {
         }
 
         const data = await res.json()
-        setClone({ html: data.html, original_url: data.original_url })
+        
+        // Salvar cloneGroupId, origin e pages
+        const groupId = data.cloneGroupId || id
+        const editorOrigin = data.origin || new URL(data.original_url).origin
+        const editorPages: EditorPage[] = (data.pages || []).map((p: any) => ({
+          id: p.id,
+          originalUrl: p.originalUrl,
+          path: p.path || '/',
+          isRoot: p.isRoot || false,
+          orderIndex: p.orderIndex || 0,
+          isSpaFramework: p.isSpaFramework || false,
+          editableHtml: p.editableHtml || '',
+          html: p.html || '',
+          currentHtml: p.editableHtml || p.html || '', // Inicializar com HTML original
+        }))
+        
+        setCloneGroupId(groupId)
+        setOrigin(editorOrigin)
+        setPages(editorPages)
+        
+        // Determinar página inicial (root ou primeira)
+        const rootPage = editorPages.find((p) => p.isRoot) || editorPages[0]
+        const initialPageId = rootPage?.id || id
+        setCurrentPageId(initialPageId)
+        
+        // Usar loadPageHtml para inicializar (reutiliza a mesma lógica)
+        if (rootPage) {
+          const htmlToUse = rootPage.isSpaFramework && rootPage.editableHtml
+            ? rootPage.editableHtml
+            : rootPage.html
+          loadPageHtml(htmlToUse, rootPage.originalUrl, rootPage.isSpaFramework)
+        } else {
+          // Fallback: usar dados da API antiga
+          setClone({ 
+            html: data.html, 
+            original_url: data.original_url,
+            isSpaFramework: data.isSpaFramework || false
+          })
+        }
+        
+        // Verificar se deve mostrar aviso de SPA
+        if (data.isSpaFramework) {
+          const storageKey = `nocry_spa_notice_dismissed_${id}`
+          const alreadyDismissed =
+            typeof window !== 'undefined' &&
+            window.localStorage?.getItem(storageKey) === '1'
+          
+          if (!alreadyDismissed) {
+            setShowSpaNotice(true)
+          }
+        }
       } catch (err) {
         console.error('[EDITOR] Load error:', err)
         setError(err instanceof Error ? err.message : 'Erro ao carregar clone')
@@ -134,12 +245,317 @@ export default function EditorPage() {
     })()
   }, [id])
 
+  // Função para pegar o HTML atual do editor (do iframe)
+  function getCurrentEditorHtmlSafe(): string {
+    if (!iframeRef.current) {
+      console.warn('[EDITOR] getCurrentEditorHtmlSafe: iframe não disponível')
+      return ''
+    }
+
+    const doc = iframeRef.current.contentDocument
+    if (!doc) {
+      console.warn('[EDITOR] getCurrentEditorHtmlSafe: documento não disponível')
+      return ''
+    }
+
+    try {
+      let newHtml = doc.documentElement.outerHTML
+
+      // Remover o <base id="nocry-editor-base" ...> que injetamos só pro editor
+      newHtml = newHtml.replace(
+        /<base[^>]*id=["']nocry-editor-base["'][^>]*>\s*/i,
+        ''
+      )
+
+      // Remover o <script id="nocry-editor-script">...</script> que é só do editor
+      newHtml = newHtml.replace(
+        /<script[^>]*id=["']nocry-editor-script["'][^>]*>[\s\S]*?<\/script>\s*/i,
+        ''
+      )
+
+      return newHtml
+    } catch (err) {
+      console.error('[EDITOR] getCurrentEditorHtmlSafe: erro ao serializar', err)
+      return ''
+    }
+  }
+
+  // Função para salvar o HTML atual da página antes de trocar
+  function saveCurrentPageHtml() {
+    if (!currentPageId) return
+
+    const html = getCurrentEditorHtmlSafe()
+    if (!html) {
+      console.warn('[EDITOR] saveCurrentPageHtml: HTML vazio, pulando salvamento')
+      return
+    }
+
+    setPages((prevPages) =>
+      prevPages.map((p) =>
+        p.id === currentPageId ? { ...p, currentHtml: html } : p
+      )
+    )
+
+    console.debug('[EDITOR] saveCurrentPageHtml', {
+      pageId: currentPageId,
+      length: html.length,
+    })
+  }
+
+  // Função para carregar HTML de uma página (reutiliza lógica de inicialização)
+  function loadPageHtml(html: string, originalUrl: string, isSpaFramework: boolean = false) {
+    // Atualizar estado do clone (isso vai atualizar o srcDoc via useMemo)
+    setClone({
+      html: html,
+      original_url: originalUrl,
+      isSpaFramework: isSpaFramework,
+    })
+    
+    // Resetar seleção
+    setSelectedElement(null)
+    
+    // Atualizar outline quando o iframe carregar
+    setTimeout(() => {
+      if (iframeRef.current) {
+        const doc = iframeRef.current.contentDocument
+        if (doc) {
+          const nodes = Array.from(doc.body.children) as HTMLElement[]
+          const items: OutlineItem[] = nodes
+            .filter((el) => el.dataset?.nocryId)
+            .map((el) => {
+              const text = (el.innerText || '').replace(/\s+/g, ' ').trim()
+              const preview = text.slice(0, 60) + (text.length > 60 ? '…' : '')
+              return {
+                elementId: el.dataset.nocryId!,
+                tagName: el.tagName.toLowerCase(),
+                textPreview: preview || `[${el.tagName.toLowerCase()} vazio]`,
+              }
+            })
+          setOutline(items)
+        }
+      }
+    }, 100)
+    
+    console.debug('[EDITOR] loadPageHtml', { length: html.length, originalUrl })
+  }
+
+  // Função para carregar página por ID
+  function loadPageById(pageId: string) {
+    // 1) Salvar a página atual antes de trocar
+    saveCurrentPageHtml()
+
+    // 2) Achar a página alvo
+    const page = pages.find((p) => p.id === pageId)
+    if (!page) {
+      console.warn('[EDITOR] loadPageById: page not found', pageId)
+      return
+    }
+
+    // 3) Atualizar currentPageId
+    setCurrentPageId(page.id)
+
+    // 4) Carregar HTML atual (ou original se nunca foi mexido)
+    const htmlToLoad = page.currentHtml || page.editableHtml || page.html || ''
+
+    loadPageHtml(htmlToLoad, page.originalUrl, page.isSpaFramework)
+    console.debug('[EDITOR] loadPageById', {
+      pageId: page.id,
+      path: page.path,
+      length: htmlToLoad.length,
+      usingCurrentHtml: !!page.currentHtml,
+    })
+  }
+
+  // Função para carregar página por path
+  function loadPageByPath(path: string) {
+    // Normalizar path: "/", "/product", "/product/"
+    let normalized = path || '/'
+    if (!normalized.startsWith('/')) normalized = '/' + normalized
+    if (normalized !== '/' && normalized.endsWith('/')) {
+      normalized = normalized.slice(0, -1)
+    }
+
+    const page = pages.find((p) => {
+      const pPath = p.path === '/' ? '/' : (p.path || '').replace(/\/$/, '')
+      const nPath = normalized === '/' ? '/' : normalized.replace(/\/$/, '')
+      return pPath === nPath
+    })
+
+    console.debug('[EDITOR] loadPageByPath', {
+      inputPath: path,
+      normalized,
+      found: !!page,
+      foundPath: page?.path,
+    })
+
+    if (!page) {
+      console.warn('[EDITOR] loadPageByPath: page not found', path)
+      return
+    }
+    
+    loadPageById(page.id)
+  }
+
   // Receber mensagens do iframe
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
-      if (!event.data || typeof event.data !== 'object') return
+      // Log todas as mensagens recebidas para debug
+      if (event.data?.type?.startsWith('NCRY_')) {
+        console.log('[EDITOR] Mensagem recebida no handleMessage', { 
+          type: event.data.type, 
+          payload: event.data.payload,
+          origin: event.origin,
+          expectedOrigin: window.location.origin,
+          timestamp: Date.now()
+        })
+      }
+      
+      if (!event.data || typeof event.data !== 'object') {
+        console.debug('[EDITOR] Mensagem ignorada (não é objeto)', event.data)
+        return
+      }
+      
+      // Handler para cliques em links (modo preview)
+      if (event.data.type === 'NCRY_LINK_CLICKED') {
+        const { href } = event.data.payload || {}
+        if (!href) {
+          console.warn('[EDITOR] NCRY_LINK_CLICKED ignorado: href vazio')
+          return
+        }
+        
+        // IMPORTANTE: Usar função que acessa o estado atual via closure
+        // Não podemos confiar no closure do useEffect, então vamos usar uma abordagem diferente
+        console.log('[EDITOR] NCRY_LINK_CLICKED recebido - processando SEMPRE (verificação será feita dentro)', { 
+          href,
+          timestamp: Date.now()
+        })
+        
+        // Normalizar href → path
+        let path = href
+        let isExternal = false
+        
+        try {
+          if (href.startsWith('http://') || href.startsWith('https://')) {
+            const url = new URL(href)
+            const currentOrigin = origin || ''
+            console.log('[EDITOR] Link absoluto detectado', { urlOrigin: url.origin, currentOrigin })
+            // Verificar se é mesmo domínio
+            if (url.origin !== currentOrigin) {
+              // Link externo: abrir em nova aba
+              console.log('[EDITOR] Link externo detectado, abrindo em nova aba', { urlOrigin: url.origin, currentOrigin })
+              window.open(href, '_blank')
+              return
+            }
+            path = url.pathname
+          } else {
+            // relativo: tirar query/hash
+            const qIndex = href.indexOf('?')
+            const hashIndex = href.indexOf('#')
+            const cutIndex = [qIndex, hashIndex].filter((i) => i > -1).sort((a, b) => a - b)[0]
+            if (cutIndex > -1) {
+              path = href.slice(0, cutIndex)
+            } else {
+              path = href
+            }
+          }
+        } catch (err) {
+          console.warn('[EDITOR] Erro ao normalizar href', err)
+          path = href
+        }
+        
+        // Normalizar path usando a mesma lógica de normalizePathStructure
+        // Remover extensões e IDs
+        path = path.replace(/\.(html|htm|php|aspx|jsp)$/i, '')
+        if (path.endsWith('/index')) {
+          path = path.slice(0, -6)
+        }
+        const segments = path.split('/').filter(Boolean)
+        const isLikelyId = (seg: string): boolean => {
+          if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg)) return true
+          if (/^[0-9a-f]{24,}$/i.test(seg)) return true
+          if (/^[0-9a-zA-Z]{20,}$/.test(seg)) return true
+          return false
+        }
+        const filteredSegments = segments.filter((seg: string) => !isLikelyId(seg))
+        if (filteredSegments.length === 1) {
+          path = `/${filteredSegments[0]}`
+        } else if (filteredSegments.length >= 2) {
+          path = `/${filteredSegments[0]}/${filteredSegments[filteredSegments.length - 1]}`
+        } else {
+          path = '/'
+        }
+        
+        // Garantir formato correto
+        if (!path.startsWith('/')) path = '/' + path
+        if (path !== '/' && path.endsWith('/')) path = path.slice(0, -1)
+        
+        console.log('[EDITOR] Path normalizado', { originalHref: href, normalizedPath: path })
+        
+        // Usar refs para acessar estado atualizado (não depende de closure)
+        const currentPreview = isInteractivePreviewRef.current
+        const currentPages = pagesRef.current
+        const currentOrigin = originRef.current
+        
+        console.log('[EDITOR] Verificando estado atual (via refs)', {
+          isInteractivePreview: currentPreview,
+          pagesCount: currentPages.length,
+          pages: currentPages.map(p => ({ id: p.id, path: p.path })),
+          origin: currentOrigin
+        })
+        
+        if (!currentPreview) {
+          console.warn('[EDITOR] Modo preview desativado, ignorando')
+          return
+        }
+        
+        // Tentar achar uma página do clone com esse path
+        const targetPage = currentPages.find((p) => {
+          const pPath = p.path === '/' ? '/' : (p.path || '').replace(/\/$/, '')
+          const nPath = path === '/' ? '/' : path.replace(/\/$/, '')
+          const match = pPath === nPath
+          console.log('[EDITOR] Comparando paths', { pPath, nPath, match })
+          return match
+        })
+        
+        if (targetPage) {
+          // É uma SUBPÁGINA DO PRÓPRIO CLONE → navegação interna do editor
+          console.log('[EDITOR] ✅ Página clonada encontrada, navegando', { 
+            path, 
+            pageId: targetPage.id,
+            pagePath: targetPage.path 
+          })
+          loadPageByPath(path)
+          return
+        }
+        
+        // Não é uma página do clone:
+        console.log('[EDITOR] Página não encontrada no clone', { 
+          path,
+          availablePages: currentPages.map(p => p.path)
+        })
+        
+        // - abrir em nova aba se for http(s)
+        if (href.startsWith('http://') || href.startsWith('https://')) {
+          console.log('[EDITOR] Abrindo link externo em nova aba', { href })
+          window.open(href, '_blank')
+          return
+        }
+        
+        // Se for algum outro tipo de link estranho, simplesmente bloqueia (já foi bloqueado no iframe)
+        console.log('[EDITOR] Link bloqueado (não é página clonada nem externo)', { href })
+      }
+      
+      // Handler para navegação interna (modo clique)
+      if (event.data.type === 'NCRY_NAVIGATE_TO_PAGE') {
+        const { pageId } = event.data.payload || {}
+        if (pageId) {
+          loadPageById(pageId)
+        }
+        return
+      }
+      
       if (event.data.type === 'NCRY_SELECT_ELEMENT') {
-        const { elementId, tagName, innerText, role, classList, styles, attributes } =
+        const { elementId, tagName, innerText, role, classList, styles, attributes, linkInfo } =
           event.data.payload || {}
         if (!elementId) return
 
@@ -150,17 +566,112 @@ export default function EditorPage() {
           role: role || null,
           classList: classList || [],
           styles: styles || {},
+          // Informações de link (se o elemento for ou estiver dentro de um link)
+          linkElementId: linkInfo?.linkElementId || null,
+          href: linkInfo?.href || null,
+          target: linkInfo?.target || null,
         })
 
-        // Se for imagem, captura src
-        if (tagName.toLowerCase() === 'img' && attributes?.src) {
-          setImageUrl(attributes.src)
+        // Se for imagem ou placeholder, captura src
+        if ((tagName.toLowerCase() === 'img' || 
+             (tagName.toLowerCase() === 'div' && classList?.some(c => c.includes('nocry-image-placeholder')))) && 
+            attributes?.src !== undefined) {
+          setImageUrl(attributes.src || '')
+        }
+      }
+      
+      if (event.data.type === 'NCRY_ELEMENT_DUPLICATED') {
+        // Força atualização do outline
+        if (iframeRef.current) {
+          const doc = iframeRef.current.contentDocument
+          if (doc) {
+            const nodes = Array.from(doc.body.children) as HTMLElement[]
+            const items: OutlineItem[] = nodes
+              .filter((el) => el.dataset?.nocryId)
+              .map((el) => {
+                const text = (el.innerText || '').replace(/\s+/g, ' ').trim()
+                const preview = text.slice(0, 60) + (text.length > 60 ? '…' : '')
+                return {
+                  elementId: el.dataset.nocryId!,
+                  tagName: el.tagName.toLowerCase(),
+                  textPreview: preview || `[${el.tagName.toLowerCase()} vazio]`,
+                }
+              })
+            setOutline(items)
+          }
+        }
+      }
+      
+      if (event.data.type === 'NCRY_ELEMENT_REORDERED') {
+        // Força atualização do outline após reordenação
+        if (iframeRef.current) {
+          const doc = iframeRef.current.contentDocument
+          if (doc) {
+            const nodes = Array.from(doc.body.children) as HTMLElement[]
+            const items: OutlineItem[] = nodes
+              .filter((el) => el.dataset?.nocryId)
+              .map((el) => {
+                const text = (el.innerText || '').replace(/\s+/g, ' ').trim()
+                const preview = text.slice(0, 60) + (text.length > 60 ? '…' : '')
+                return {
+                  elementId: el.dataset.nocryId!,
+                  tagName: el.tagName.toLowerCase(),
+                  textPreview: preview || `[${el.tagName.toLowerCase()} vazio]`,
+                }
+              })
+            setOutline(items)
+          }
+        }
+      }
+      
+      if (event.data.type === 'NCRY_REMOVE_ELEMENT') {
+        // Handler para quando o botão de excluir é clicado no iframe
+        const { elementId } = event.data.payload || {}
+        if (!elementId) return
+        
+        // Agenda snapshot para salvar
+        scheduleSnapshot()
+        
+        // Limpa seleção se for o elemento removido
+        if (selectedElement?.elementId === elementId) {
+          setSelectedElement(null)
+        }
+        
+        // Atualiza outline removendo o elemento
+        setOutline((prev) => prev.filter((item) => item.elementId !== elementId))
+        
+        // Envia mensagem para o iframe confirmar a remoção (já foi removido, mas garante sincronização)
+        if (iframeRef.current?.contentWindow) {
+          iframeRef.current.contentWindow.postMessage(
+            {
+              type: 'NCRY_REMOVE_ELEMENT',
+              payload: { elementId },
+            },
+            '*'
+          )
+        }
+      }
+      
+      if (event.data.type === 'NCRY_IFRAME_READY') {
+        // Quando iframe está pronto, garantir que o estado inicial é enviado
+        if (iframeRef.current?.contentWindow) {
+          iframeRef.current.contentWindow.postMessage(
+            {
+              type: 'NCRY_SET_INTERACTIVE_PREVIEW',
+              payload: { enabled: false }, // Sempre começar como false
+            },
+            '*'
+          )
         }
       }
     }
 
+    console.log('[EDITOR] Adicionando listener de mensagens window.addEventListener')
     window.addEventListener('message', handleMessage)
-    return () => window.removeEventListener('message', handleMessage)
+    return () => {
+      console.log('[EDITOR] Removendo listener de mensagens')
+      window.removeEventListener('message', handleMessage)
+    }
   }, [])
 
   // Classificar tipo de elemento
@@ -171,6 +682,8 @@ export default function EditorPage() {
     const classes = (sel.classList || []).map((c) => c.toLowerCase())
 
     if (tag === 'img') return 'image'
+    // Placeholder de imagem também é tratado como image
+    if (tag === 'div' && classes.some(c => c.includes('nocry-image-placeholder'))) return 'image'
     if (/^h[1-6]$/.test(tag)) return 'heading'
 
     // Detectar badges primeiro (antes de botões)
@@ -219,28 +732,28 @@ export default function EditorPage() {
     const doc = iframeRef.current.contentDocument
     if (!doc) return
 
-    const scripts = Array.from(doc.querySelectorAll('script'))
+    // Obter HTML completo do documento como string
+    const htmlContent = doc.documentElement.outerHTML
 
+    // Usar a função utilitária para detectar pixels
+    const detected = detectTrackingScripts(htmlContent)
+
+    // Extrair pixelId do script UTMify se encontrado
     let utmifyPixelId: string | null = null
     let hasUtmifyPixel = false
-
-    let hasUtmifyUtms = false
-    let hasMetaPixel = false
-    let metaPixelId: string | null = null
-
-    // Detecta UTMify Pixel (window.pixelId + pixel.js)
-    for (const s of scripts) {
-      const text = s.textContent || ''
-      if (text.includes('window.pixelId')) {
-        const match = text.match(/window\.pixelId\s*=\s*["']([^"']+)["']/)
-        if (match && match[1]) {
-          utmifyPixelId = match[1]
-          hasUtmifyPixel = true
-        }
+    
+    if (detected.utmifyScript) {
+      hasUtmifyPixel = true
+      // Extrair o ID do script completo
+      const pixelIdMatch = detected.utmifyScript.match(/window\.pixelId\s*=\s*["']([^"']+)["']/i)
+      if (pixelIdMatch && pixelIdMatch[1]) {
+        utmifyPixelId = pixelIdMatch[1]
       }
     }
 
-    // Detecta script de UTMs UTMify (src)
+    // Detecta script de UTMs UTMify (src) - mantém detecção via DOM
+    let hasUtmifyUtms = false
+    const scripts = Array.from(doc.querySelectorAll('script'))
     for (const s of scripts) {
       const src = s.getAttribute('src') || ''
       if (src.includes('utmify.com.br/scripts/utms')) {
@@ -249,30 +762,19 @@ export default function EditorPage() {
       }
     }
 
-    // Detecta Pixel Meta
-    for (const s of scripts) {
-      const text = s.textContent || ''
-      if (text.includes("fbq('init'") || text.includes('fbq("init"')) {
-        const match = text.match(/fbq\(['"]init['"]\s*,\s*['"](\d+)['"]\)/)
-        if (match && match[1]) {
-          metaPixelId = match[1]
-          hasMetaPixel = true
-        }
-      }
-    }
-
     setTracking({
       utmifyPixel: {
         found: hasUtmifyPixel,
         pixelId: utmifyPixelId,
+        script: detected.utmifyScript, // Script completo
       },
       utmifyUtms: {
         found: hasUtmifyUtms,
         enabled: hasUtmifyUtms,
       },
       metaPixel: {
-        found: hasMetaPixel,
-        pixelId: metaPixelId,
+        found: !!detected.metaPixelId,
+        pixelId: detected.metaPixelId,
       },
     })
 
@@ -304,6 +806,55 @@ export default function EditorPage() {
 
     setOutline(items)
   }, [iframeLoaded, selectedElement])
+
+  // Esconder toolbar quando não há elemento selecionado
+  useEffect(() => {
+    if (!selectedElement && iframeRef.current?.contentDocument) {
+      const toolbar = iframeRef.current.contentDocument.getElementById('nocry-element-toolbar')
+      if (toolbar) {
+        toolbar.style.opacity = '0'
+        setTimeout(() => {
+          if (toolbar) {
+            toolbar.style.display = 'none'
+          }
+        }, 150)
+      }
+    }
+  }, [selectedElement])
+
+  // Passar estado de preview interativo para o iframe
+  useEffect(() => {
+    if (iframeLoaded && iframeRef.current?.contentWindow) {
+      // Sempre enviar o estado atual (garantir que é false por padrão)
+      // Aguardar um pouco para garantir que o script injetado está pronto
+      const timer = setTimeout(() => {
+        if (iframeRef.current?.contentWindow) {
+          console.log('[EDITOR] useEffect: Enviando NCRY_SET_INTERACTIVE_PREVIEW para iframe', { 
+            enabled: isInteractivePreview,
+            iframeLoaded,
+            timestamp: Date.now()
+          })
+          iframeRef.current.contentWindow.postMessage(
+            {
+              type: 'NCRY_SET_INTERACTIVE_PREVIEW',
+              payload: { enabled: isInteractivePreview },
+            },
+            '*'
+          )
+        } else {
+          console.error('[EDITOR] useEffect: ERRO - contentWindow não existe após timeout')
+        }
+      }, 150)
+      
+      return () => clearTimeout(timer)
+    } else {
+      console.warn('[EDITOR] useEffect: iframe não está pronto', { 
+        iframeLoaded, 
+        iframeExists: !!iframeRef.current,
+        contentWindowExists: !!iframeRef.current?.contentWindow
+      })
+    }
+  }, [isInteractivePreview, iframeLoaded])
 
   // Gerenciar alinhamento e margens
   useEffect(() => {
@@ -550,29 +1101,111 @@ export default function EditorPage() {
         {/* Editor específico para imagens */}
         {elementKind === 'image' ? (
           <div className="space-y-4">
-            <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              IMG · Fonte atual:
-              <span className="block break-all text-[10px] mt-1" style={{ color: 'var(--text-soft)' }}>
-                {imageUrl || '(sem src)'}
-              </span>
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>
-                URL da imagem
-              </label>
-              <input
-                className="editor-input text-sm"
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                placeholder="https://example.com/image.jpg"
-              />
-            </div>
+            {/* Preview da imagem atual */}
+            {imageUrl && (
+              <div className="relative rounded-lg overflow-hidden border" style={{ borderColor: 'var(--border-subtle)' }}>
+                <img
+                  src={imageUrl}
+                  alt="Preview"
+                  className="w-full h-32 object-cover"
+                  onError={(e) => {
+                    // Se a imagem falhar ao carregar, esconde o preview
+                    e.currentTarget.style.display = 'none'
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Botão para abrir biblioteca */}
             <button
-              onClick={handleApplyImageUrl}
-              className="editor-btn-primary w-full"
+              onClick={() => setIsMediaLibraryOpen(true)}
+              className="w-full px-4 py-3 rounded-lg font-medium text-sm transition-colors flex items-center justify-center gap-2"
+              style={{
+                backgroundColor: 'var(--gold)',
+                color: '#000',
+              }}
             >
-              Aplicar imagem
+              <ImageIcon className="w-4 h-4" />
+              {imageUrl ? 'Alterar Imagem' : 'Selecionar Imagem'}
             </button>
+
+            {/* Botão remover (se houver imagem) */}
+            {imageUrl && (
+              <button
+                onClick={handleRemoveImage}
+                className="w-full px-4 py-2 text-xs rounded-lg transition-colors"
+                style={{
+                  backgroundColor: 'rgba(248, 113, 113, 0.1)',
+                  color: 'var(--danger)',
+                  border: '1px solid rgba(248, 113, 113, 0.3)',
+                }}
+              >
+                Remover Imagem
+              </button>
+            )}
+
+            {/* Modal de Biblioteca de Mídia */}
+            <MediaLibraryModal
+              isOpen={isMediaLibraryOpen}
+              onClose={() => setIsMediaLibraryOpen(false)}
+              onSelectImage={(urlOrObject) => {
+                console.log('[EDITOR] 1. Modal retornou:', urlOrObject)
+                console.log('[EDITOR] 2. Elemento antes do update:', selectedElement)
+                
+                // Extrair URL como string (pode vir como objeto ou string)
+                let finalUrl: string
+                if (typeof urlOrObject === 'string') {
+                  finalUrl = urlOrObject.trim()
+                } else if (urlOrObject && typeof urlOrObject === 'object') {
+                  // Se for objeto, tentar extrair publicUrl ou url
+                  finalUrl = ((urlOrObject as any)?.publicUrl || (urlOrObject as any)?.url || '').trim()
+                } else {
+                  console.error('[EDITOR] ERRO: URL inválida/vazia!', urlOrObject)
+                  return
+                }
+                
+                // Validar que é URL absoluta
+                if (!finalUrl || (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://'))) {
+                  console.error('[EDITOR] ERRO: URL Final não é absoluta!', finalUrl)
+                  return
+                }
+                
+                console.log('[EDITOR] 3. URL Final para salvar:', finalUrl)
+                
+                // Atualizar estado local (isso atualiza o preview na sidebar)
+                setImageUrl(finalUrl)
+                
+                // Aplicar imediatamente no iframe
+                if (iframeRef.current && selectedElement) {
+                  scheduleSnapshot()
+                  const win = iframeRef.current.contentWindow
+                  if (win) {
+                    console.log('[EDITOR] 4. Enviando mensagem para iframe:', {
+                      elementId: selectedElement.elementId,
+                      src: finalUrl,
+                    })
+                    win.postMessage(
+                      {
+                        type: 'NCRY_UPDATE_IMAGE_SRC',
+                        payload: {
+                          elementId: selectedElement.elementId,
+                          src: finalUrl,
+                        },
+                      },
+                      '*'
+                    )
+                  } else {
+                    console.error('[EDITOR] ERRO: contentWindow não disponível!')
+                  }
+                } else {
+                  console.error('[EDITOR] ERRO: iframe ou selectedElement não disponível!', {
+                    hasIframe: !!iframeRef.current,
+                    hasSelectedElement: !!selectedElement,
+                  })
+                }
+              }}
+              currentImageUrl={imageUrl}
+            />
           </div>
         ) : (
           <>
@@ -596,6 +1229,52 @@ export default function EditorPage() {
                 placeholder="Digite o texto..."
               />
             </div>
+
+            {/* Editor de Link (se o elemento for ou estiver dentro de um link) */}
+            {selectedElement.linkElementId && (
+              <div className="space-y-3 pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>
+                  Link de Destino / URL
+                </label>
+                <input
+                  type="text"
+                  className="editor-input text-sm"
+                  value={selectedElement.href === '#' || !selectedElement.href ? '' : selectedElement.href}
+                  onChange={(e) => {
+                    const rawValue = e.target.value.trim()
+                    // Se vazio, define como '#' no DOM mas salva null no estado para mostrar vazio no input
+                    const newHref = rawValue === '' ? '#' : rawValue
+                    const hrefForState = rawValue === '' ? null : rawValue
+                    
+                    setSelectedElement({
+                      ...selectedElement,
+                      href: hrefForState,
+                    })
+                    handleLinkChange(newHref, selectedElement.target || null)
+                  }}
+                  placeholder="https://example.com ou #"
+                />
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedElement.target === '_blank'}
+                    onChange={(e) => {
+                      const newTarget = e.target.checked ? '_blank' : null
+                      setSelectedElement({
+                        ...selectedElement,
+                        target: newTarget,
+                      })
+                      handleLinkChange(selectedElement.href || '#', newTarget)
+                    }}
+                    className="rounded"
+                    style={{ accentColor: 'var(--gold)' }}
+                  />
+                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    Abrir em nova aba?
+                  </span>
+                </label>
+              </div>
+            )}
 
             {/* Cor do texto */}
             <div className="relative">
@@ -1029,6 +1708,28 @@ export default function EditorPage() {
     )
   }
 
+  // Atualizar link (href e target)
+  function handleLinkChange(newHref: string, newTarget: string | null) {
+    if (!iframeRef.current || !selectedElement || !selectedElement.linkElementId) return
+    
+    const win = iframeRef.current.contentWindow
+    if (!win) return
+
+    scheduleSnapshot()
+
+    win.postMessage(
+      {
+        type: 'NCRY_UPDATE_LINK',
+        payload: {
+          linkElementId: selectedElement.linkElementId,
+          href: newHref,
+          target: newTarget,
+        },
+      },
+      '*'
+    )
+  }
+
   // Aplicar alterações no iframe
   function applyChanges() {
     if (!iframeRef.current || !selectedElement) return
@@ -1201,6 +1902,19 @@ export default function EditorPage() {
       '*'
     )
     setSelectedElement(null)
+    
+    // Esconde toolbar no iframe
+    if (iframeRef.current.contentDocument) {
+      const toolbar = iframeRef.current.contentDocument.getElementById('nocry-element-toolbar')
+      if (toolbar) {
+        toolbar.style.opacity = '0'
+        setTimeout(() => {
+          if (toolbar) {
+            toolbar.style.display = 'none'
+          }
+        }, 150)
+      }
+    }
   }
 
   // Inserir bloco
@@ -1253,7 +1967,7 @@ export default function EditorPage() {
 
   // Aplicar URL de imagem
   function handleApplyImageUrl() {
-    if (!iframeRef.current || !selectedElement || !imageUrl) return
+    if (!iframeRef.current || !selectedElement) return
     
     scheduleSnapshot()
     
@@ -1264,12 +1978,34 @@ export default function EditorPage() {
         type: 'NCRY_UPDATE_IMAGE_SRC',
         payload: {
           elementId: selectedElement.elementId,
-          src: imageUrl,
+          src: imageUrl || '', // Permite src vazio para remover imagem
         },
       },
       '*'
     )
   }
+
+  // Remover imagem (converte para placeholder)
+  function handleRemoveImage() {
+    if (!iframeRef.current || !selectedElement) return
+    
+    scheduleSnapshot()
+    
+    setImageUrl('')
+    const win = iframeRef.current.contentWindow
+    if (!win) return
+    win.postMessage(
+      {
+        type: 'NCRY_UPDATE_IMAGE_SRC',
+        payload: {
+          elementId: selectedElement.elementId,
+          src: '', // String vazia converte para placeholder
+        },
+      },
+      '*'
+    )
+  }
+
 
   // Drag & Drop handlers
   function handleDropOnOutline(e: React.DragEvent<HTMLLIElement>, targetId: string) {
@@ -1333,16 +2069,60 @@ export default function EditorPage() {
 
     const scripts = Array.from(doc.querySelectorAll('script'))
 
-    // Atualiza UTMify Pixel ID
-    if (tracking.utmifyPixel?.pixelId) {
+    // Atualiza UTMify Pixel Script completo
+    if (tracking.utmifyPixel?.script) {
+      // Procura script existente com window.pixelId
+      let foundExisting = false
       for (const s of scripts) {
         const text = s.textContent || ''
-        if (text.includes('window.pixelId')) {
-          const newText = text.replace(
-            /window\.pixelId\s*=\s*["']([^"']+)["']/,
-            `window.pixelId = "${tracking.utmifyPixel.pixelId}"`
-          )
-          s.textContent = newText
+        if (text.includes('window.pixelId') || text.includes('cdn.utmify.com.br/scripts/pixel/pixel.js')) {
+          // Substitui o script existente pelo novo
+          // Parse o HTML do script novo e substitui o conteúdo
+          const tempDiv = doc.createElement('div')
+          tempDiv.innerHTML = tracking.utmifyPixel.script
+          const newScriptElement = tempDiv.querySelector('script')
+          
+          if (newScriptElement) {
+            // Copia atributos do novo script
+            Array.from(newScriptElement.attributes).forEach(attr => {
+              s.setAttribute(attr.name, attr.value)
+            })
+            // Substitui o conteúdo
+            s.textContent = newScriptElement.textContent
+            s.innerHTML = newScriptElement.innerHTML
+          } else {
+            // Se não conseguiu parsear, tenta substituir apenas o conteúdo interno
+            const scriptContentMatch = tracking.utmifyPixel.script.match(/<script[^>]*>([\s\S]*?)<\/script>/i)
+            if (scriptContentMatch && scriptContentMatch[1]) {
+              s.textContent = scriptContentMatch[1]
+            }
+          }
+          foundExisting = true
+          break
+        }
+      }
+      
+      // Se não encontrou script existente, adiciona novo
+      if (!foundExisting) {
+        const tempDiv = doc.createElement('div')
+        tempDiv.innerHTML = tracking.utmifyPixel.script
+        const newScriptElement = tempDiv.querySelector('script')
+        
+        if (newScriptElement) {
+          // Clona o elemento para poder inserir no documento
+          const clonedScript = doc.createElement('script')
+          Array.from(newScriptElement.attributes).forEach(attr => {
+            clonedScript.setAttribute(attr.name, attr.value)
+          })
+          clonedScript.textContent = newScriptElement.textContent
+          clonedScript.innerHTML = newScriptElement.innerHTML
+          
+          // Adiciona no head ou body (preferencialmente head)
+          if (doc.head) {
+            doc.head.appendChild(clonedScript)
+          } else if (doc.body) {
+            doc.body.appendChild(clonedScript)
+          }
         }
       }
     }
@@ -1387,6 +2167,17 @@ export default function EditorPage() {
 
   // Salvar e baixar ZIP
   async function handleSaveAndDownload() {
+    // Se for SPA, mostrar aviso antes de exportar
+    if (clone?.isSpaFramework) {
+      setShowSpaExportNotice(true)
+      return
+    }
+
+    // Para páginas não-SPA, continuar com o fluxo normal
+    await executeSaveAndDownload()
+  }
+
+  async function executeSaveAndDownload() {
     if (!iframeRef.current) return
 
     try {
@@ -1394,11 +2185,15 @@ export default function EditorPage() {
       setError(null)
       setSuccessMessage(null)
 
+      // Salvar HTML atual da página antes de exportar (atualiza estado pages)
+      saveCurrentPageHtml()
+
       const doc = iframeRef.current.contentDocument
       if (!doc) {
         throw new Error('Não foi possível acessar o documento')
       }
 
+      // Pegar HTML atual do iframe (fonte da verdade - contém todas as edições visuais)
       let newHtml = doc.documentElement.outerHTML
 
       // Remover o <base id="nocry-editor-base" ...> que injetamos só pro editor
@@ -1412,22 +2207,76 @@ export default function EditorPage() {
         /<script[^>]*id=["']nocry-editor-script["'][^>]*>[\s\S]*?<\/script>\s*/i,
         ''
       )
-
-      // 1. Salvar no banco
-      const saveRes = await fetch(`/api/clones/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ html: newHtml }),
+      
+      // Log para validação
+      console.log('[EDITOR] HTML do iframe capturado:', {
+        length: newHtml.length,
+        hasSupabase: newHtml.includes('supabase.co'),
+        hasImages: newHtml.includes('<img'),
       })
 
-      if (!saveRes.ok) {
-        const data = await saveRes.json()
-        throw new Error(data.error || 'Falha ao salvar')
+      // 1. Salvar no banco (só se não for SPA, pois para SPA não salvamos edições no rawHtml)
+      if (!clone?.isSpaFramework) {
+        const saveRes = await fetch(`/api/clones/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ html: newHtml }),
+        })
+
+        if (!saveRes.ok) {
+          const data = await saveRes.json()
+          throw new Error(data.error || 'Falha ao salvar')
+        }
       }
 
-      // 2. Baixar ZIP
-      const zipRes = await fetch(`/api/clones/${id}/zip`, {
+      // 2. Baixar ZIP - enviar HTML editado atual do iframe
+      const downloadId = cloneGroupId || id
+      
+      // Coletar HTML de todas as páginas editadas
+      const editedPages: Array<{ id: string; html: string }> = []
+      
+      // Função auxiliar para limpar scripts do editor
+      const cleanEditorScripts = (html: string): string => {
+        return html
+          .replace(/<base[^>]*id=["']nocry-editor-base["'][^>]*>\s*/i, '')
+          .replace(/<script[^>]*id=["']nocry-editor-script["'][^>]*>[\s\S]*?<\/script>\s*/i, '')
+      }
+      
+      // Adicionar a página atual (HTML do iframe)
+      const currentPageIdToUse = currentPageId || id
+      editedPages.push({
+        id: currentPageIdToUse,
+        html: cleanEditorScripts(newHtml),
+      })
+      
+      // Adicionar outras páginas do grupo (se houver)
+      // Usar currentHtml que foi salvo durante a edição
+      for (const page of pages) {
+        if (page.id !== currentPageIdToUse) {
+          // Usar currentHtml se disponível (contém edições), senão usar html original
+          const pageHtml = page.currentHtml || page.html || ''
+          if (pageHtml) {
+            editedPages.push({
+              id: page.id,
+              html: cleanEditorScripts(pageHtml),
+            })
+          }
+        }
+      }
+      
+      console.log('[EDITOR] Enviando HTML editado para ZIP:', {
+        pagesCount: editedPages.length,
+        currentPageId: currentPageIdToUse,
+        currentPageHasSupabase: newHtml.includes('supabase.co'),
+        allPagesIds: editedPages.map(p => p.id),
+      })
+      
+      const zipRes = await fetch(`/api/clones/${downloadId}/zip`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          editedPages: editedPages,
+        }),
       })
 
       if (!zipRes.ok) {
@@ -1557,13 +2406,14 @@ export default function EditorPage() {
         
         // Estado do drag & drop
         let nocrySelectedEl = null;
-        let nocryDragBar = null;
+        let nocryToolbar = null;
         let nocryDropLine = null;
         let nocryIsDragging = false;
         let nocryDragSourceEl = null;
         let nocryCurrentDropTarget = null;
         let nocryCurrentDropPosition = null;
         let nocrySavedRange = null;
+        let nocryInteractivePreview = false; // Modo preview interativo
 
         function assignIds(root) {
           const all = root.querySelectorAll('*');
@@ -1577,12 +2427,14 @@ export default function EditorPage() {
         function highlight(el) {
           if (!el) return;
           if (nocryIsDragging) return; // Não destacar durante drag
+          if (nocryInteractivePreview === true) return; // Não destacar em modo preview
           el.style.outline = '2px solid #FACC15';
           el.style.cursor = 'pointer';
         }
 
         function unhighlight(el) {
           if (!el) return;
+          if (nocryInteractivePreview === true) return; // Não destacar em modo preview
           el.style.outline = '';
         }
 
@@ -1612,30 +2464,302 @@ export default function EditorPage() {
           return false;
         }
 
-        function findEditableRoot(target) {
-          let el = target;
-          while (el && el !== document.body) {
-            const tag = el.tagName.toLowerCase();
-            const role = (el.getAttribute('role') || '').toLowerCase();
-            const classes = Array.from(el.classList || []).map(c => c.toLowerCase());
+        /**
+         * Verifica se um elemento é proibido (Safety Guard)
+         */
+        function isForbidden(element) {
+          if (!element || !(element instanceof HTMLElement)) return true;
+          
+          const tag = element.tagName.toLowerCase();
+          const id = element.id || '';
 
-            // 1) Botões / badges (como já estava)
-            if (isButtonLike(el)) return el;
+          // Bloquear elementos raiz perigosos
+          if (
+            tag === 'body' ||
+            tag === 'html' ||
+            tag === 'head' ||
+            tag === 'script' ||
+            tag === 'style' ||
+            tag === 'meta' ||
+            tag === 'link' ||
+            tag === 'title' ||
+            tag === 'noscript'
+          ) {
+            return true;
+          }
 
-            // 2) Elementos de texto "puro" que queremos editar diretamente
-            if (
-              /^h[1-6]$/.test(tag) ||
-              tag === 'p' ||
-              tag === 'span' ||
-              tag === 'strong' ||
-              tag === 'em'
-            ) {
-              return el;
+          // Bloquear containers raiz de frameworks
+          const frameworkRootIds = ['__next', 'root', 'app', '__nuxt', '__app'];
+          if (frameworkRootIds.includes(id)) {
+            return true;
+          }
+
+          return false;
+        }
+
+        /**
+         * Analisa a pilha de elementos no ponto do clique e retorna o melhor candidato
+         * Usa elementsFromPoint para "furar" overlays e divs transparentes
+         * 
+         * Estratégia "Deep Selection": analisa todos os elementos na coordenada do clique
+         * e seleciona o mais interessante, ignorando divs transparentes/overlays
+         */
+        function analyzeTargetFromPoint(clientX, clientY) {
+          // 1. Captura da Pilha: pegar todos os elementos na coordenada do clique
+          const stack = document.elementsFromPoint(clientX, clientY);
+          
+          if (!stack || stack.length === 0) {
+            console.log('[EDITOR] Nenhum elemento encontrado no ponto do clique');
+            return null;
+          }
+
+          // Log detalhado da pilha para debug
+          const stackInfo = stack.map((el, idx) => {
+            if (!(el instanceof HTMLElement)) {
+              return idx + ': ' + el.tagName + ' (nao HTMLElement)';
+            }
+            const tag = el.tagName;
+            const id = el.id ? '#' + el.id : '';
+            const classes = el.className ? '.' + el.className.split(' ').join('.') : '';
+            return idx + ': ' + tag + id + classes;
+          });
+          console.log('[EDITOR] Pilha de elementos no ponto (topo -> fundo):', stackInfo);
+
+          // 2. Funções de classificação de prioridade
+          const isHighPriority = (el) => {
+            if (!(el instanceof HTMLElement)) return false;
+            const tag = el.tagName.toUpperCase();
+            const highPriorityTags = ['IMG', 'BUTTON', 'A', 'VIDEO', 'AUDIO', 'INPUT', 'TEXTAREA', 'SELECT', 'SVG', 'CANVAS', 'IFRAME'];
+            if (highPriorityTags.includes(tag)) return true;
+            
+            // Placeholder de imagem
+            if (tag === 'DIV' && el.classList.contains('nocry-image-placeholder')) return true;
+            
+            // Botões (usando função existente)
+            if (isButtonLike(el)) return true;
+            
+            return false;
+          };
+
+          const isMediumPriority = (el) => {
+            if (!(el instanceof HTMLElement)) return false;
+            const tag = el.tagName.toUpperCase();
+            const textTags = ['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'SPAN', 'STRONG', 'EM', 'B', 'I', 'U', 'LABEL', 'LI', 'TD', 'TH'];
+            if (!textTags.includes(tag)) return false;
+            
+            // Verificar se tem texto visível não-vazio
+            const text = (el.innerText || '').trim();
+            return text.length > 0;
+          };
+
+          const isLowPriority = (el) => {
+            if (!(el instanceof HTMLElement)) return false;
+            const tag = el.tagName.toUpperCase();
+            const containerTags = ['DIV', 'SECTION', 'ARTICLE', 'ASIDE', 'NAV', 'HEADER', 'FOOTER', 'MAIN', 'UL', 'OL', 'TABLE', 'TR'];
+            return containerTags.includes(tag);
+          };
+
+          // 3. Procura na pilha seguindo ordem de prioridade
+          let bestCandidate = null;
+
+          // PRIMEIRO: Tenta achar Elementos de Alta Prioridade (Imagens, Botões) mesmo que estejam fundos
+          // Isso permite "furar" divs transparentes/overlays
+          bestCandidate = stack.find(el => {
+            if (!(el instanceof HTMLElement)) return false;
+            return isHighPriority(el) && !isForbidden(el);
+          });
+
+          if (bestCandidate) {
+            console.log('[EDITOR] ✅ Elemento de alta prioridade encontrado:', bestCandidate.tagName);
+            return bestCandidate;
+          }
+
+          // SEGUNDO: Se não achou, tenta achar Texto (Média Prioridade)
+          bestCandidate = stack.find(el => {
+            if (!(el instanceof HTMLElement)) return false;
+            return isMediumPriority(el) && !isForbidden(el);
+          });
+
+          if (bestCandidate) {
+            console.log('[EDITOR] ✅ Elemento de média prioridade encontrado:', bestCandidate.tagName);
+            
+            // Refinar: se for um container de texto mas tiver mídia dentro, priorizar a mídia
+            const refined = refineSelectionForMedia(bestCandidate);
+            if (refined && refined !== bestCandidate) {
+              console.log('[EDITOR] 🎯 Media Hunter: Container de texto tem mídia, priorizando mídia.');
+              return refined;
+            }
+            
+            return bestCandidate;
+          }
+
+          // TERCEIRO: Se não achou nada interessante, pega o container mais superficial (o alvo original)
+          // desde que não seja proibido
+          bestCandidate = stack.find(el => {
+            if (!(el instanceof HTMLElement)) return false;
+            return !isForbidden(el);
+          });
+
+          if (bestCandidate) {
+            console.log('[EDITOR] ✅ Usando container mais superficial:', bestCandidate.tagName);
+            
+            // ============================================
+            // REFINAMENTO: "Media Hunter" - Buscar mídia dentro de containers
+            // ============================================
+            const refined = refineSelectionForMedia(bestCandidate);
+            if (refined && refined !== bestCandidate) {
+              console.log('[EDITOR] 🎯 Media Hunter: Wrapper detectado! Aprofundando seleção para mídia interna.');
+              return refined;
+            }
+            
+            return bestCandidate;
+          }
+
+          console.log('[EDITOR] ⚠️ Nenhum candidato válido encontrado na pilha');
+          return null;
+        }
+
+        /**
+         * Refina a seleção para priorizar mídia (imagens, vídeos, SVG) dentro de containers
+         * "Media Hunter" - Caçador de Mídia
+         */
+        function refineSelectionForMedia(element) {
+          if (!element || !(element instanceof HTMLElement)) return element;
+
+          const tag = element.tagName.toUpperCase();
+
+          // 1. Se for Body/Html, bloqueia (já verificado antes, mas segurança extra)
+          if (tag === 'BODY' || tag === 'HTML') return null;
+
+          // 2. Lógica do "Media Hunter": Se clicou num container genérico...
+          const containerTags = ['DIV', 'SPAN', 'FIGURE', 'SECTION', 'ARTICLE', 'ASIDE', 'A', 'LI', 'PICTURE', 'HEADER', 'FOOTER', 'NAV', 'MAIN'];
+          
+          if (containerTags.includes(tag)) {
+            // Verificar se tem pouco ou nenhum texto direto (para não atrapalhar edição de cards de texto)
+            const directText = Array.from(element.childNodes)
+              .filter(node => node.nodeType === Node.TEXT_NODE)
+              .map(node => node.textContent?.trim() || '')
+              .join(' ')
+              .trim();
+            
+            const hasLittleDirectText = directText.length < 20; // Menos de 20 caracteres de texto direto
+
+            // Buscar por mídia interna
+            const innerImg = element.querySelector('img');
+            const innerVideo = element.querySelector('video');
+            const innerSvg = element.querySelector('svg');
+            const innerCanvas = element.querySelector('canvas');
+            const innerIframe = element.querySelector('iframe');
+
+            // Prioridade: IMG > VIDEO > SVG > CANVAS > IFRAME
+            let mediaElement = null;
+            if (innerImg && innerImg instanceof HTMLElement) {
+              mediaElement = innerImg;
+            } else if (innerVideo && innerVideo instanceof HTMLElement) {
+              mediaElement = innerVideo;
+            } else if (innerSvg && innerSvg instanceof HTMLElement) {
+              mediaElement = innerSvg;
+            } else if (innerCanvas && innerCanvas instanceof HTMLElement) {
+              mediaElement = innerCanvas;
+            } else if (innerIframe && innerIframe instanceof HTMLElement) {
+              mediaElement = innerIframe;
             }
 
-            el = el.parentElement;
+            if (mediaElement) {
+              // Validar relevância: só trocar se o container tem pouco texto direto
+              // OU se a imagem ocupa área significativa
+              if (hasLittleDirectText) {
+                console.log('[EDITOR] Media Hunter: Container com pouco texto, usando mídia interna:', mediaElement.tagName);
+                return mediaElement;
+              }
+
+              // Verificar se a mídia ocupa área significativa do container
+              const containerRect = element.getBoundingClientRect();
+              const mediaRect = mediaElement.getBoundingClientRect();
+              
+              const containerArea = containerRect.width * containerRect.height;
+              const mediaArea = mediaRect.width * mediaRect.height;
+              
+              // Se a mídia ocupa mais de 30% da área do container, priorizar ela
+              if (containerArea > 0 && (mediaArea / containerArea) > 0.3) {
+                console.log('[EDITOR] Media Hunter: Mídia ocupa área significativa (' + Math.round((mediaArea / containerArea) * 100) + '%), usando mídia interna:', mediaElement.tagName);
+                return mediaElement;
+              }
+
+              // Se o container tem muito texto mas a mídia ainda é grande, usar a mídia
+              if (mediaArea > 10000) { // Mais de 100x100px
+                console.log('[EDITOR] Media Hunter: Mídia grande detectada, usando mídia interna:', mediaElement.tagName);
+                return mediaElement;
+              }
+            }
           }
-          return target;
+
+          // 3. Se não achou filho melhor, retorna o próprio elemento
+          return element;
+        }
+
+        /**
+         * Analisa um elemento e retorna o melhor candidato para edição
+         * Versão legada que ainda pode ser usada em alguns casos
+         * @deprecated Prefira usar analyzeTargetFromPoint para cliques
+         */
+        function analyzeTarget(element) {
+          if (!element || !(element instanceof HTMLElement)) {
+            return null;
+          }
+
+          // Safety Guard
+          if (isForbidden(element)) {
+            console.warn('[EDITOR] Elemento proibido detectado:', element.tagName);
+            if (element.firstElementChild && element.firstElementChild instanceof HTMLElement) {
+              return analyzeTarget(element.firstElementChild);
+            }
+            return null;
+          }
+
+          // Verificar visibilidade
+          const rect = element.getBoundingClientRect();
+          const computed = window.getComputedStyle(element);
+          
+          const isVisible = (
+            rect.width > 0 &&
+            rect.height > 0 &&
+            computed.visibility !== 'hidden' &&
+            computed.display !== 'none' &&
+            computed.opacity !== '0'
+          );
+
+          if (!isVisible) {
+            if (element.parentElement && element.parentElement instanceof HTMLElement) {
+              return analyzeTarget(element.parentElement);
+            }
+            return null;
+          }
+
+          return element;
+        }
+
+        /**
+         * Função de compatibilidade: mantém findEditableRoot para código que ainda usa
+         * @deprecated Use analyzeTarget diretamente
+         */
+        function findEditableRoot(target) {
+          const analyzed = analyzeTarget(target);
+          return analyzed || target;
+        }
+
+        // Função para encontrar link pai (ou o próprio elemento se for link)
+        function findParentLink(element) {
+          if (!element) return null;
+          
+          // Se o próprio elemento é um link
+          if (element.tagName && element.tagName.toLowerCase() === 'a') {
+            return element;
+          }
+          
+          // Procura por link pai usando closest
+          const linkElement = element.closest('a');
+          return linkElement;
         }
 
         function saveSelectionForRoot(root) {
@@ -1653,44 +2777,208 @@ export default function EditorPage() {
           nocrySavedRange = range.cloneRange();
         }
 
-        // Drag bar functions
-        function ensureDragBar() {
-          if (!nocryDragBar) {
-            nocryDragBar = document.createElement('div');
-            nocryDragBar.id = 'nocry-drag-bar';
-            nocryDragBar.style.position = 'absolute';
-            nocryDragBar.style.height = '6px';
-            nocryDragBar.style.borderRadius = '999px';
-            nocryDragBar.style.background = 'rgba(250, 204, 21, 0.95)';
-            nocryDragBar.style.cursor = 'grab';
-            nocryDragBar.style.zIndex = '999999';
-            nocryDragBar.style.boxShadow = '0 0 8px rgba(0,0,0,0.6)';
-            nocryDragBar.style.transform = 'translateY(-8px)';
-            nocryDragBar.style.pointerEvents = 'auto';
-            document.body.appendChild(nocryDragBar);
-            nocryDragBar.addEventListener('mousedown', handleDragBarMouseDown);
+        // Toolbar functions
+        function createToolbarButton(icon, label, onClick, isDelete) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.setAttribute('aria-label', label);
+          btn.style.cssText = 'display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 999px; border: none; background: transparent; cursor: pointer; transition: background-color 0.15s;';
+          btn.innerHTML = icon;
+          
+          if (isDelete) {
+            btn.style.color = '#FCA5A5';
+            btn.onmouseenter = () => { btn.style.backgroundColor = 'rgba(239, 68, 68, 0.1)'; };
+            btn.onmouseleave = () => { btn.style.backgroundColor = 'transparent'; };
+          } else {
+            btn.style.color = '#E4E4E7';
+            btn.onmouseenter = () => { btn.style.backgroundColor = 'rgba(250, 204, 21, 0.1)'; };
+            btn.onmouseleave = () => { btn.style.backgroundColor = 'transparent'; };
+          }
+          
+          btn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onClick();
+          };
+          
+          return btn;
+        }
+
+        function ensureToolbar() {
+          if (!nocryToolbar) {
+            nocryToolbar = document.createElement('div');
+            nocryToolbar.id = 'nocry-element-toolbar';
+            nocryToolbar.style.cssText = 'position: absolute; z-index: 999999; display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-radius: 999px; background: rgba(24, 24, 27, 0.9); border: 1px solid rgba(250, 204, 21, 0.6); box-shadow: 0 4px 12px rgba(0,0,0,0.4); pointer-events: auto; opacity: 0; transition: opacity 0.15s;';
+            
+            // Ícones SVG inline (Move, Edit, Copy, Trash)
+            const moveIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9l-1 1 1 1M9 5l1-1 1 1M15 19l-1 1-1-1M19 9l1 1-1 1M12 12l-7-7M12 12l7-7M12 12l-7 7M12 12l7 7"/></svg>';
+            const editIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+            const copyIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+            const trashIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+            
+            const dragBtn = createToolbarButton(moveIcon, 'Mover elemento', handleToolbarDragStart, false);
+            dragBtn.style.cursor = 'grab';
+            dragBtn.onmousedown = (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleToolbarDragStart();
+            };
+            dragBtn.ontouchstart = (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleToolbarDragStart();
+            };
+            
+            const editBtn = createToolbarButton(editIcon, 'Editar elemento', handleToolbarEdit, false);
+            const duplicateBtn = createToolbarButton(copyIcon, 'Duplicar elemento', handleToolbarDuplicate, false);
+            const deleteBtn = createToolbarButton(trashIcon, 'Excluir elemento', handleToolbarDelete, true);
+            
+            nocryToolbar.appendChild(dragBtn);
+            nocryToolbar.appendChild(editBtn);
+            nocryToolbar.appendChild(duplicateBtn);
+            nocryToolbar.appendChild(deleteBtn);
+            
+            document.body.appendChild(nocryToolbar);
           }
         }
 
-        function positionDragBar() {
-          if (!nocrySelectedEl || !nocryDragBar) return;
+        function positionToolbar() {
+          if (!nocrySelectedEl || !nocryToolbar) return;
           const rect = nocrySelectedEl.getBoundingClientRect();
-          nocryDragBar.style.width = rect.width + 'px';
-          nocryDragBar.style.left = (window.scrollX + rect.left) + 'px';
-          nocryDragBar.style.top = (window.scrollY + rect.top) + 'px';
-          nocryDragBar.style.display = 'block';
+          // Posiciona no canto superior esquerdo, acima do elemento
+          const toolbarHeight = 32; // Altura aproximada da toolbar
+          const leftPos = window.scrollX + rect.left + 8;
+          const topPos = window.scrollY + rect.top - toolbarHeight - 8; // 8px acima do elemento
+          
+          nocryToolbar.style.left = Math.max(window.scrollX + 8, leftPos) + 'px';
+          nocryToolbar.style.top = Math.max(window.scrollY + 8, topPos) + 'px';
+          nocryToolbar.style.display = 'flex';
+          // Fade in
+          setTimeout(() => {
+            if (nocryToolbar) {
+              nocryToolbar.style.opacity = '1';
+            }
+          }, 10);
         }
 
-        function hideDragBar() {
-          if (nocryDragBar) {
-            nocryDragBar.style.display = 'none';
+        function hideToolbar() {
+          if (nocryToolbar) {
+            nocryToolbar.style.opacity = '0';
+            setTimeout(() => {
+              if (nocryToolbar) {
+                nocryToolbar.style.display = 'none';
+              }
+            }, 150);
+          }
+        }
+
+        function handleToolbarDragStart() {
+          if (!nocrySelectedEl) return;
+          nocryIsDragging = true;
+          nocryDragSourceEl = nocrySelectedEl;
+          document.body.classList.add('nocry-dragging');
+          
+          window.addEventListener('mousemove', handleDragMouseMove);
+          window.addEventListener('mouseup', handleDragMouseUp);
+          window.addEventListener('touchmove', handleDragMouseMove);
+          window.addEventListener('touchend', handleDragMouseUp);
+        }
+
+        function handleToolbarEdit() {
+          if (!nocrySelectedEl) return;
+          // Dispara o mesmo fluxo de seleção para abrir edição na sidebar
+          const computed = window.getComputedStyle(nocrySelectedEl);
+          const attributes = {};
+          if (nocrySelectedEl.tagName.toLowerCase() === 'img') {
+            attributes.src = nocrySelectedEl.getAttribute('src') || '';
+            attributes.alt = nocrySelectedEl.getAttribute('alt') || '';
+          }
+          
+          // Detecta link
+          const linkElement = findParentLink(nocrySelectedEl);
+          let linkInfo = null;
+          if (linkElement) {
+            // Garante que o link tem data-nocry-id
+            if (!linkElement.dataset.nocryId) {
+              linkElement.dataset.nocryId = 'nocry-' + (counter++);
+            }
+            linkInfo = {
+              linkElementId: linkElement.dataset.nocryId,
+              href: linkElement.getAttribute('href') || null,
+              target: linkElement.getAttribute('target') || null,
+            };
+          }
+          
+          if (window.parent) {
+            window.parent.postMessage({
+              type: 'NCRY_SELECT_ELEMENT',
+              payload: {
+                elementId: nocrySelectedEl.dataset.nocryId,
+                tagName: nocrySelectedEl.tagName,
+                innerText: nocrySelectedEl.innerText,
+                role: nocrySelectedEl.getAttribute('role') || null,
+                classList: Array.from(nocrySelectedEl.classList || []),
+                attributes: attributes,
+                linkInfo: linkInfo,
+                styles: {
+                  color: computed.color,
+                  backgroundColor: computed.backgroundColor,
+                  borderColor: computed.borderColor,
+                  borderRadius: computed.borderRadius,
+                  boxShadow: computed.boxShadow,
+                  fontSize: computed.fontSize,
+                  fontWeight: computed.fontWeight,
+                  width: computed.width,
+                  textAlign: computed.textAlign,
+                  marginTop: computed.marginTop,
+                  marginBottom: computed.marginBottom
+                }
+              }
+            }, '*');
+          }
+        }
+
+        function handleToolbarDuplicate() {
+          if (!nocrySelectedEl || !nocrySelectedEl.parentElement) return;
+          
+          const cloned = nocrySelectedEl.cloneNode(true);
+          if (cloned instanceof HTMLElement) {
+            // Remove o data-nocry-id do clone (será atribuído novo)
+            delete cloned.dataset.nocryId;
+            // Insere logo após o elemento original
+            nocrySelectedEl.parentElement.insertBefore(cloned, nocrySelectedEl.nextSibling);
+            
+            // Notifica o parent (React) para atualizar outline
+            if (window.parent) {
+              window.parent.postMessage({
+                type: 'NCRY_ELEMENT_DUPLICATED',
+                payload: {
+                  originalId: nocrySelectedEl.dataset.nocryId || null,
+                }
+              }, '*');
+            }
+          }
+        }
+
+        function handleToolbarDelete() {
+          if (!nocrySelectedEl) return;
+          const elementId = nocrySelectedEl.dataset.nocryId;
+          if (!elementId) return;
+          
+          if (window.parent) {
+            window.parent.postMessage({
+              type: 'NCRY_REMOVE_ELEMENT',
+              payload: { elementId },
+            }, '*');
           }
         }
 
         function updateSelectedElement(root) {
+          // IMPORTANTE: verificar explicitamente se é false (não apenas truthy)
+          if (nocryInteractivePreview === true) return; // Não selecionar em modo preview
           nocrySelectedEl = root;
-          ensureDragBar();
-          positionDragBar();
+          ensureToolbar();
+          positionToolbar();
         }
 
         // Drop line functions
@@ -1757,21 +3045,6 @@ export default function EditorPage() {
           return null;
         }
 
-        function handleDragBarMouseDown(e) {
-          e.preventDefault();
-          e.stopPropagation();
-          if (!nocrySelectedEl) return;
-
-          nocryIsDragging = true;
-          nocryDragSourceEl = nocrySelectedEl;
-          document.body.classList.add('nocry-dragging');
-          if (nocryDragBar) {
-            nocryDragBar.style.cursor = 'grabbing';
-          }
-
-          window.addEventListener('mousemove', handleDragMouseMove);
-          window.addEventListener('mouseup', handleDragMouseUp);
-        }
 
         function handleDragMouseMove(e) {
           if (!nocryIsDragging || !nocryDragSourceEl) return;
@@ -1798,10 +3071,9 @@ export default function EditorPage() {
         function handleDragMouseUp(e) {
           window.removeEventListener('mousemove', handleDragMouseMove);
           window.removeEventListener('mouseup', handleDragMouseUp);
+          window.removeEventListener('touchmove', handleDragMouseMove);
+          window.removeEventListener('touchend', handleDragMouseUp);
           document.body.classList.remove('nocry-dragging');
-          if (nocryDragBar) {
-            nocryDragBar.style.cursor = 'grab';
-          }
 
           if (!nocryIsDragging || !nocryDragSourceEl) {
             nocryIsDragging = false;
@@ -1817,8 +3089,10 @@ export default function EditorPage() {
               parent.insertBefore(nocryDragSourceEl, nocryCurrentDropTarget.nextSibling);
             }
 
-            // Atualiza barra de drag para nova posição
-            positionDragBar();
+            // Atualiza toolbar para nova posição
+            if (nocrySelectedEl === nocryDragSourceEl) {
+              positionToolbar();
+            }
 
             // Notifica o parent (React)
             if (window.parent) {
@@ -1842,6 +3116,9 @@ export default function EditorPage() {
 
         window.addEventListener('DOMContentLoaded', function() {
           assignIds(document);
+          
+          // Garantir que o estado inicial de preview é false (sempre)
+          nocryInteractivePreview = false;
 
           // --- SANITIZAÇÃO: remover text nodes soltos no topo do body (">", etc) ---
           try {
@@ -1858,13 +3135,34 @@ export default function EditorPage() {
           } catch (e) {}
           // -------------------------------------------------------------------------
 
+          // --- CONVERTER IMAGENS SEM SRC PARA PLACEHOLDER ---
+          try {
+            const allImages = document.querySelectorAll('img');
+            allImages.forEach((img) => {
+              const src = img.getAttribute('src') || '';
+              if (!src || src.trim() === '' || src === '#' || src.startsWith('data:')) {
+                // Imagem sem src válido: converter para placeholder
+                const elementId = img.dataset.nocryId || 'nocry-' + (counter++);
+                if (!img.dataset.nocryId) {
+                  img.dataset.nocryId = elementId;
+                }
+                convertImgToPlaceholder(img, elementId);
+              }
+            });
+          } catch (e) {
+            console.warn('[IFRAME] Erro ao converter imagens sem src:', e);
+          }
+          // -------------------------------------------------------------------------
+
           document.body.addEventListener('mouseover', function(e) {
+            if (nocryInteractivePreview === true) return; // Não destacar em modo preview
             const target = e.target;
             if (!(target instanceof HTMLElement)) return;
             highlight(target);
           }, true);
 
           document.body.addEventListener('mouseout', function(e) {
+            if (nocryInteractivePreview === true) return; // Não destacar em modo preview
             const target = e.target;
             if (!(target instanceof HTMLElement)) return;
             unhighlight(target);
@@ -1886,20 +3184,128 @@ export default function EditorPage() {
             saveSelectionForRoot(root);
           }, true);
 
-          // Clique: seleciona elemento (busca root editável)
-          document.body.addEventListener('click', function(e) {
-            // Ignora cliques na drag bar
-            if (e.target === nocryDragBar) return;
+          // Handler de cliques em links (modo preview) - captura na fase de captura para interceptar ANTES de tudo
+          // IMPORTANTE: Este handler DEVE ser o primeiro e bloquear tudo se for um link válido
+          // Registrado PRIMEIRO para garantir prioridade máxima
+          const linkClickHandler = function(e) {
+            // Só processa se modo preview estiver ativo
+            if (nocryInteractivePreview !== true) {
+              return; // Deixa outros handlers processarem
+            }
             
+            console.log('[IFRAME] Click detectado em modo preview', { 
+              nocryInteractivePreview, 
+              target: e.target?.tagName,
+              targetHref: e.target instanceof HTMLAnchorElement ? e.target.href : null
+            });
+            
+            let target = e.target;
+            let anchor = null;
+            
+            // Buscar <a> no caminho do clique
+            let depth = 0;
+            while (target && target !== document.body && target !== document.documentElement && depth < 10) {
+              if (target instanceof HTMLAnchorElement) {
+                anchor = target;
+                console.log('[IFRAME] Anchor encontrado no caminho', { 
+                  depth, 
+                  href: anchor.href,
+                  tagName: anchor.tagName,
+                  rawHref: anchor.getAttribute('href')
+                });
+                break;
+              }
+              target = target.parentElement;
+              depth++;
+            }
+            
+            // Se não encontrou anchor, NÃO FAZ NADA - deixa o comportamento padrão acontecer
+            // Isso permite que botões, formulários, etc funcionem normalmente
+            if (!anchor) {
+              console.log('[IFRAME] Nenhum anchor encontrado - deixando comportamento padrão (botões/formulários funcionam)');
+              return; // Não bloqueia, deixa funcionar normalmente
+            }
+            
+            const rawHref = anchor.getAttribute('href') || '';
+            console.log('[IFRAME] Anchor encontrado, verificando href', { rawHref });
+            
+            // Ignorar links vazios, âncoras, javascript:, mailto:, tel:, etc.
+            if (rawHref && 
+                rawHref !== '#' && 
+                !rawHref.startsWith('javascript:') &&
+                !rawHref.startsWith('mailto:') &&
+                !rawHref.startsWith('tel:') &&
+                !rawHref.startsWith('whatsapp:')) {
+              console.log('[IFRAME] Link válido detectado, BLOQUEANDO e enviando mensagem', { rawHref });
+              
+              // BLOQUEAR TUDO ANTES DE QUALQUER OUTRO HANDLER
+              e.preventDefault();
+              e.stopPropagation();
+              e.stopImmediatePropagation();
+              
+              // Marcar que este evento foi processado
+              e.nocryLinkProcessed = true;
+              
+              // Enviar mensagem para o parent (React) processar a navegação
+              try {
+                window.parent.postMessage({
+                  type: 'NCRY_LINK_CLICKED',
+                  payload: { href: rawHref }
+                }, '*');
+                console.log('[IFRAME] ✅ Mensagem NCRY_LINK_CLICKED enviada com sucesso para parent');
+              } catch (err) {
+                console.error('[IFRAME] ❌ ERRO ao enviar mensagem:', err);
+              }
+              
+              return false;
+            } else {
+              console.log('[IFRAME] Link ignorado (vazio ou protocolo especial) - deixando comportamento padrão', { rawHref });
+              // Não bloqueia links especiais, deixa funcionar normalmente
+              return;
+            }
+          };
+          
+          // Registrar PRIMEIRO com captura para máxima prioridade
+          document.addEventListener('click', linkClickHandler, true);
+          console.log('[IFRAME] ✅ Handler de links registrado (capture phase)');
+          
+          // Clique: seleciona elemento (busca root editável)
+          // IMPORTANTE: Este handler só executa se o handler de links não bloqueou
+          document.addEventListener('click', function(e) {
+            // Se o handler de links já processou, não fazer nada
+            if (e.nocryLinkProcessed === true) {
+              console.log('[IFRAME] Handler de seleção ignorado (link já processado)');
+              return;
+            }
+            
+            // Em modo preview interativo, NÃO FAZ NADA (deixa comportamento padrão)
+            if (nocryInteractivePreview === true) {
+              console.log('[IFRAME] Handler de seleção ignorado (modo preview ativo)');
+              return; // Deixa o comportamento padrão do HTML/JS acontecer
+            }
+
+            // Ignora cliques na toolbar e seus filhos
+            if (nocryToolbar && (nocryToolbar === e.target || nocryToolbar.contains(e.target))) {
+              return;
+            }
+            
+            // Só bloqueia se NÃO for modo preview
             e.preventDefault();
             e.stopPropagation();
-            const target = e.target;
-            if (!(target instanceof HTMLElement)) return;
 
-            const root = findEditableRoot(target);
+            // NOVA ABORDAGEM: Usar elementsFromPoint para "furar" overlays e divs transparentes
+            // Isso permite selecionar imagens mesmo que existam divs por cima
+            const root = analyzeTargetFromPoint(e.clientX, e.clientY);
 
-            // PROTEÇÃO: não permitir editar BODY/HTML
-            if (!root || root === document.body || root === document.documentElement) {
+            // Se analyzeTargetFromPoint retornou null, significa que não há candidato válido
+            if (!root) {
+              console.log('[EDITOR] Clique ignorado: nenhum candidato válido encontrado');
+              return;
+            }
+
+            // Verificação adicional de segurança
+            if (root === document.body || root === document.documentElement) {
+              console.warn('[EDITOR] Tentativa de selecionar body/html bloqueada');
               return;
             }
 
@@ -1917,6 +3323,25 @@ export default function EditorPage() {
             if (root.tagName.toLowerCase() === 'img') {
               attributes.src = root.getAttribute('src') || '';
               attributes.alt = root.getAttribute('alt') || '';
+            } else if (root.classList.contains('nocry-image-placeholder')) {
+              // Placeholder: não tem src, mas precisa ser tratado como imagem
+              attributes.src = '';
+              attributes.alt = root.getAttribute('data-nocry-original-alt') || '';
+            }
+
+            // Detecta link
+            const linkElement = findParentLink(root);
+            let linkInfo = null;
+            if (linkElement) {
+              // Garante que o link tem data-nocry-id
+              if (!linkElement.dataset.nocryId) {
+                linkElement.dataset.nocryId = 'nocry-' + (counter++);
+              }
+              linkInfo = {
+                linkElementId: linkElement.dataset.nocryId,
+                href: linkElement.getAttribute('href') || null,
+                target: linkElement.getAttribute('target') || null,
+              };
             }
 
             window.parent.postMessage({
@@ -1928,6 +3353,7 @@ export default function EditorPage() {
                 role: root.getAttribute('role') || null,
                 classList: Array.from(root.classList || []),
                 attributes: attributes,
+                linkInfo: linkInfo,
                 styles: {
                   color: computed.color,
                   backgroundColor: computed.backgroundColor,
@@ -1947,19 +3373,141 @@ export default function EditorPage() {
 
           // Double-click: permite edição inline rápida
           document.body.addEventListener('dblclick', function(e) {
+            if (nocryInteractivePreview === true) return; // Não editar em modo preview
             const target = e.target;
             if (!(target instanceof HTMLElement)) return;
             target.contentEditable = 'true';
             target.focus();
           }, true);
 
-          // Scroll e resize: atualiza posição da drag bar
+          // Scroll e resize: atualiza posição da toolbar
           window.addEventListener('scroll', function() {
-            positionDragBar();
+            positionToolbar();
           });
           window.addEventListener('resize', function() {
-            positionDragBar();
+            positionToolbar();
           });
+
+          // Funções auxiliares para conversão img <-> placeholder
+          // (definidas antes do handler de mensagens para estarem disponíveis)
+          function convertImgToPlaceholder(imgEl, elementId) {
+            if (imgEl.tagName.toLowerCase() !== 'img') return;
+            
+            // Preservar atributos importantes
+            const nocryId = imgEl.dataset.nocryId || elementId;
+            const style = imgEl.getAttribute('style') || '';
+            const className = imgEl.getAttribute('class') || '';
+            const alt = imgEl.getAttribute('alt') || '';
+            
+            // Criar div placeholder
+            const placeholder = document.createElement('div');
+            placeholder.dataset.nocryId = nocryId;
+            placeholder.setAttribute('class', className + ' nocry-image-placeholder');
+            placeholder.setAttribute('style', style + '; min-height: 150px; background: #f0f0f0; border: 2px dashed #ccc; display: flex; justify-content: center; align-items: center; cursor: pointer;');
+            placeholder.setAttribute('data-nocry-placeholder', 'true');
+            placeholder.setAttribute('data-nocry-original-alt', alt);
+            
+            // Conteúdo do placeholder
+            placeholder.innerHTML = '<span style="color: #999; font-size: 14px;">📷 Sem imagem (Clique para editar)</span>';
+            
+            // Substituir img por placeholder
+            if (imgEl.parentNode) {
+              imgEl.parentNode.replaceChild(placeholder, imgEl);
+            }
+          }
+          
+          function convertPlaceholderToImg(placeholderEl, elementId, src) {
+            console.log('[IFRAME] convertPlaceholderToImg chamado:', {
+              isPlaceholder: placeholderEl.classList.contains('nocry-image-placeholder'),
+              elementId,
+              src,
+            });
+            
+            if (!placeholderEl.classList.contains('nocry-image-placeholder')) {
+              console.warn('[IFRAME] convertPlaceholderToImg: elemento não é placeholder!');
+              return;
+            }
+            
+            // Preservar atributos importantes
+            const nocryId = placeholderEl.dataset.nocryId || elementId;
+            const style = placeholderEl.getAttribute('style') || '';
+            const className = placeholderEl.getAttribute('class') || '';
+            const alt = placeholderEl.getAttribute('data-nocry-original-alt') || '';
+            
+            // Remover estilos de placeholder do style
+            const cleanStyle = style
+              .replace(/min-height:\s*[^;]+;?/gi, '')
+              .replace(/background:\s*[^;]+;?/gi, '')
+              .replace(/border:\s*[^;]+;?/gi, '')
+              .replace(/display:\s*flex;?/gi, '')
+              .replace(/justify-content:\s*[^;]+;?/gi, '')
+              .replace(/align-items:\s*[^;]+;?/gi, '')
+              .replace(/cursor:\s*[^;]+;?/gi, '');
+            
+            // Criar img com sanitização completa
+            const img = document.createElement('img');
+            img.dataset.nocryId = nocryId;
+            
+            // Limpar classes de placeholder mas manter outras
+            const cleanClassName = className.replace('nocry-image-placeholder', '').trim();
+            if (cleanClassName) {
+              img.setAttribute('class', cleanClassName);
+            }
+            
+            // Aplicar estilos limpos
+            if (cleanStyle) {
+              img.setAttribute('style', cleanStyle);
+            }
+            
+            // Definir src (tanto como propriedade quanto atributo)
+            img.src = src;
+            img.setAttribute('src', src);
+            img.setAttribute('alt', alt);
+            
+            // SANITIZAÇÃO COMPLETA: Remover atributos conflitantes do Next.js
+            img.removeAttribute('srcset');
+            img.removeAttribute('sizes');
+            img.removeAttribute('loading');
+            img.removeAttribute('data-nimg');
+            
+            // Garantir visibilidade
+            img.style.opacity = '1';
+            img.style.visibility = 'visible';
+            if (!img.style.display || img.style.display === 'none') {
+              img.style.display = 'block';
+            }
+            
+            console.log('[IFRAME] Nova img criada (sanitizada):', {
+              nocryId: img.dataset.nocryId,
+              src: img.getAttribute('src'),
+              alt: img.getAttribute('alt'),
+              className: img.getAttribute('class'),
+              hasSrcset: img.hasAttribute('srcset'),
+              opacity: img.style.opacity,
+              visibility: img.style.visibility,
+            });
+            
+            // Substituir placeholder por img
+            if (placeholderEl.parentNode) {
+              placeholderEl.parentNode.replaceChild(img, placeholderEl);
+              console.log('[IFRAME] ✅ Placeholder substituído por img com sucesso (sanitizada)!');
+              
+              // Verificar se a img foi inserida corretamente
+              const insertedImg = document.querySelector('[data-nocry-id="' + nocryId + '"]');
+              if (insertedImg && insertedImg.tagName.toLowerCase() === 'img') {
+                console.log('[IFRAME] ✅ Verificação: img encontrada no DOM após substituição:', {
+                  src: insertedImg.getAttribute('src'),
+                  hasParent: !!insertedImg.parentNode,
+                  opacity: insertedImg.style.opacity,
+                  visibility: insertedImg.style.visibility,
+                });
+              } else {
+                console.error('[IFRAME] ❌ ERRO: img não encontrada após substituição!');
+              }
+            } else {
+              console.error('[IFRAME] ❌ ERRO: placeholder não tem parentNode!');
+            }
+          }
 
           window.addEventListener('message', function(event) {
             const data = event.data;
@@ -2037,6 +3585,11 @@ export default function EditorPage() {
               const el = document.querySelector('[data-nocry-id="' + elementId + '"]');
               if (el && el.parentElement) {
                 el.parentElement.removeChild(el);
+                // Se era o elemento selecionado, esconde toolbar
+                if (nocrySelectedEl === el) {
+                  nocrySelectedEl = null;
+                  hideToolbar();
+                }
               }
             }
 
@@ -2069,11 +3622,164 @@ export default function EditorPage() {
             }
 
             if (data.type === 'NCRY_UPDATE_IMAGE_SRC') {
+              console.log('[IFRAME] NCRY_UPDATE_IMAGE_SRC recebido:', data.payload);
               const { elementId, src } = data.payload || {};
-              if (!elementId || !src) return;
+              
+              if (!elementId) {
+                console.error('[IFRAME] ERRO: elementId não fornecido!');
+                return;
+              }
+              
+              console.log('[IFRAME] Buscando elemento com data-nocry-id:', elementId);
               const el = document.querySelector('[data-nocry-id="' + elementId + '"]');
-              if (el && el.tagName.toLowerCase() === 'img') {
-                el.setAttribute('src', src);
+              
+              if (!el) {
+                console.error('[IFRAME] ERRO: Elemento não encontrado!', {
+                  elementId,
+                  totalElements: document.querySelectorAll('[data-nocry-id]').length,
+                });
+                return;
+              }
+              
+              console.log('[IFRAME] Elemento encontrado:', {
+                tagName: el.tagName,
+                isPlaceholder: el.classList.contains('nocry-image-placeholder'),
+                currentSrc: el.tagName.toLowerCase() === 'img' ? el.getAttribute('src') : 'N/A',
+                newSrc: src,
+              });
+              
+              // Se o elemento é uma img
+              if (el.tagName.toLowerCase() === 'img') {
+                if (src && src.trim() !== '') {
+                  // SANITIZAÇÃO COMPLETA: Remove atributos conflitantes do Next.js
+                  console.log('[IFRAME] Atualizando src de img com sanitização:', src);
+                  
+                  // 1. Atualiza a fonte principal
+                  el.src = src;
+                  el.setAttribute('src', src);
+                  
+                  // 2. CRÍTICO: Remove srcset e sizes para o navegador não priorizar versões antigas
+                  el.removeAttribute('srcset');
+                  el.removeAttribute('sizes');
+                  
+                  // 3. Remove lazy loading que pode travar a imagem
+                  el.removeAttribute('loading');
+                  
+                  // 4. Remove estilos inline que bloqueiam visibilidade (Next.js coloca opacity: 0)
+                  el.style.opacity = '1';
+                  el.style.visibility = 'visible';
+                  // Preserva display existente ou define como block/inline-block
+                  if (!el.style.display || el.style.display === 'none') {
+                    el.style.display = 'block';
+                  }
+                  
+                  // 5. Remove atributos específicos de framework
+                  el.removeAttribute('data-nimg');
+                  el.removeAttribute('data-nocry-placeholder');
+                  
+                  // 6. Força reload da imagem (útil se a URL mudou mas o navegador cacheou)
+                  el.onload = null;
+                  el.onerror = null;
+                  
+                  console.log('[IFRAME] ✅ Imagem sanitizada e atualizada:', {
+                    src: el.src,
+                    hasSrcset: el.hasAttribute('srcset'),
+                    hasSizes: el.hasAttribute('sizes'),
+                    opacity: el.style.opacity,
+                    visibility: el.style.visibility,
+                    display: el.style.display,
+                  });
+                } else {
+                  // Sem src: converte para placeholder
+                  console.log('[IFRAME] Convertendo img para placeholder (src vazio)');
+                  convertImgToPlaceholder(el, elementId);
+                }
+              } 
+              // Se o elemento é um placeholder (div)
+              else if (el.classList.contains('nocry-image-placeholder')) {
+                if (src && src.trim() !== '') {
+                  // Tem src: converte placeholder para img com sanitização completa
+                  console.log('[IFRAME] Convertendo placeholder para img:', src);
+                  
+                  // Preservar atributos importantes
+                  const nocryId = el.dataset.nocryId || elementId;
+                  const className = el.getAttribute('class') || '';
+                  const style = el.getAttribute('style') || '';
+                  const alt = el.getAttribute('data-nocry-original-alt') || '';
+                  
+                  // Criar nova img com sanitização
+                  const newImg = document.createElement('img');
+                  newImg.src = src;
+                  newImg.setAttribute('src', src);
+                  newImg.setAttribute('alt', alt);
+                  newImg.dataset.nocryId = nocryId;
+                  
+                  // Limpar classes de placeholder mas manter outras
+                  const cleanClassName = className.replace('nocry-image-placeholder', '').trim();
+                  if (cleanClassName) {
+                    newImg.setAttribute('class', cleanClassName);
+                  }
+                  
+                  // Preservar estilos de layout mas garantir visibilidade
+                  if (style) {
+                    newImg.setAttribute('style', style);
+                  }
+                  newImg.style.opacity = '1';
+                  newImg.style.visibility = 'visible';
+                  if (!newImg.style.display || newImg.style.display === 'none') {
+                    newImg.style.display = 'block';
+                  }
+                  
+                  // Garantir que não tenha atributos conflitantes
+                  newImg.removeAttribute('srcset');
+                  newImg.removeAttribute('sizes');
+                  newImg.removeAttribute('loading');
+                  newImg.removeAttribute('data-nimg');
+                  
+                  // Substituir placeholder por img
+                  if (el.parentNode) {
+                    el.parentNode.replaceChild(newImg, el);
+                    console.log('[IFRAME] ✅ Placeholder substituído por Imagem real (sanitizada):', {
+                      src: newImg.src,
+                      nocryId: newImg.dataset.nocryId,
+                    });
+                  } else {
+                    console.error('[IFRAME] ❌ ERRO: placeholder não tem parentNode!');
+                  }
+                } else {
+                  // Se src vazio, mantém como placeholder
+                  console.log('[IFRAME] Mantendo como placeholder (src vazio)');
+                }
+              } else {
+                console.warn('[IFRAME] Elemento não é img nem placeholder:', el.tagName);
+              }
+            }
+
+            if (data.type === 'NCRY_UPDATE_LINK') {
+              const { linkElementId, href, target } = data.payload || {};
+              if (!linkElementId) return;
+              const linkEl = document.querySelector('[data-nocry-id="' + linkElementId + '"]');
+              if (linkEl && linkEl.tagName && linkEl.tagName.toLowerCase() === 'a') {
+                // Atualiza href
+                if (href !== undefined) {
+                  if (href === '' || href === '#') {
+                    linkEl.setAttribute('href', '#');
+                  } else {
+                    linkEl.setAttribute('href', href);
+                  }
+                }
+                // Atualiza target
+                if (target === '_blank') {
+                  linkEl.setAttribute('target', '_blank');
+                  // Adiciona rel="noopener noreferrer" por segurança
+                  linkEl.setAttribute('rel', 'noopener noreferrer');
+                } else {
+                  linkEl.removeAttribute('target');
+                  // Remove rel se não for mais necessário
+                  if (linkEl.getAttribute('rel') === 'noopener noreferrer') {
+                    linkEl.removeAttribute('rel');
+                  }
+                }
               }
             }
 
@@ -2098,6 +3804,61 @@ export default function EditorPage() {
               const src = document.querySelector('[data-nocry-id="' + sourceId + '"]');
               if (!src) return;
               document.body.appendChild(src);
+            }
+
+            if (data.type === 'NCRY_SET_INTERACTIVE_PREVIEW') {
+              const { enabled } = data.payload || {};
+              const wasPreview = nocryInteractivePreview;
+              console.log('[IFRAME] NCRY_SET_INTERACTIVE_PREVIEW recebido', { 
+                enabled, 
+                enabledType: typeof enabled,
+                wasPreview,
+                timestamp: Date.now()
+              });
+              
+              // Garantir que é boolean explícito (nunca undefined/null)
+              // Se enabled não for explicitamente true, assume false
+              nocryInteractivePreview = enabled === true;
+              
+              // Garantir que nunca fica undefined/null
+              if (nocryInteractivePreview !== true && nocryInteractivePreview !== false) {
+                console.warn('[IFRAME] nocryInteractivePreview não é boolean, forçando false', { 
+                  value: nocryInteractivePreview,
+                  type: typeof nocryInteractivePreview
+                });
+                nocryInteractivePreview = false;
+              }
+              
+              console.log('[IFRAME] Estado atualizado', { 
+                enabled, 
+                nocryInteractivePreview,
+                wasPreview,
+                changed: wasPreview !== nocryInteractivePreview
+              });
+              
+              if (nocryInteractivePreview) {
+                // Se ativando preview, esconde toolbar e limpa seleção
+                hideToolbar();
+                nocrySelectedEl = null;
+                // Remove outlines de todos os elementos
+                const allElements = document.querySelectorAll('[data-nocry-id]');
+                allElements.forEach(el => {
+                  if (el instanceof HTMLElement) {
+                    el.style.outline = '';
+                    el.style.cursor = ''; // Remove cursor pointer
+                  }
+                });
+              } else if (wasPreview) {
+                // Ao desativar preview, volta ao modo edição
+                // Remove qualquer outline residual
+                const allElements = document.querySelectorAll('[data-nocry-id]');
+                allElements.forEach(el => {
+                  if (el instanceof HTMLElement) {
+                    el.style.outline = '';
+                    el.style.cursor = '';
+                  }
+                });
+              }
             }
 
             if (data.type === 'NCRY_BLOCK_DRAG_MOVE') {
@@ -2304,6 +4065,87 @@ export default function EditorPage() {
 
   return (
     <>
+      {/* Aviso de SPA/Next.js */}
+      {clone?.isSpaFramework && showSpaNotice && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-zinc-900 border border-yellow-500/40 px-6 py-6 shadow-2xl text-center space-y-4">
+            <h2 className="text-lg font-semibold text-white">
+              Página com Next/React detectada
+            </h2>
+            <p className="text-sm text-zinc-300">
+              Esse site usa frameworks como <span className="font-semibold">Next</span> e{' '}
+              <span className="font-semibold">React</span>. Para permitir edição visual,
+              tivemos que limitar alguns scripts e animações avançadas.
+            </p>
+            <p className="text-xs text-zinc-400">
+              O layout foi congelado em uma versão estática. Alguns efeitos dinâmicos podem
+              não aparecer aqui, mas você pode editar o conteúdo normalmente.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                const storageKey = `nocry_spa_notice_dismissed_${id}`
+                try {
+                  if (typeof window !== 'undefined') {
+                    window.localStorage?.setItem(storageKey, '1')
+                  }
+                } catch (e) {
+                  // Ignora erros de localStorage
+                }
+                setShowSpaNotice(false)
+              }}
+              className="mt-2 inline-flex items-center justify-center rounded-full bg-yellow-500 px-6 py-2 text-sm font-medium text-black hover:bg-yellow-400 transition-colors"
+            >
+              Ok, entendi
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Aviso de exportação para SPA/Next.js */}
+      {clone?.isSpaFramework && showSpaExportNotice && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl bg-zinc-900 border border-yellow-500/40 px-6 py-6 shadow-2xl text-center space-y-4">
+            <h2 className="text-lg font-semibold text-white">
+              Exportar clone completo (Next/React)
+            </h2>
+            <p className="text-sm text-zinc-300">
+              Essa página usa frameworks como <span className="font-semibold">Next</span> e{' '}
+              <span className="font-semibold">React</span>.
+            </p>
+            <p className="text-sm text-zinc-300">
+              Para esse tipo de página, o download em ZIP usa o clone completo original,
+              com scripts e animações ativados.
+            </p>
+            <p className="text-xs text-zinc-400">
+              Isso significa que o arquivo baixado pode não refletir 100% das edições feitas
+              no editor visual. Use principalmente para estudo/modelagem ou como base bruta
+              para ajustes manuais.
+            </p>
+
+            <div className="mt-4 flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowSpaExportNotice(false)}
+                className="rounded-full border border-zinc-600 px-5 py-2 text-sm text-zinc-200 hover:bg-zinc-800 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setShowSpaExportNotice(false)
+                  await executeSaveAndDownload()
+                }}
+                className="rounded-full bg-yellow-500 px-5 py-2 text-sm font-medium text-black hover:bg-yellow-400 transition-colors"
+              >
+                Exportar clone completo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="h-screen flex flex-col" style={{ backgroundColor: 'var(--bg-body)', color: 'var(--text-main)' }}>
         {/* Header global */}
         <header 
@@ -2331,8 +4173,43 @@ export default function EditorPage() {
             </div>
           </div>
 
-          {/* Centro: viewport toggle + undo */}
+          {/* Centro: seletor de páginas + viewport toggle + undo */}
           <div className="flex items-center gap-3">
+            {/* Seletor de páginas */}
+            {pages.length > 1 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Página:</span>
+                <select
+                  className="bg-zinc-900 border border-zinc-700 text-xs rounded px-2 py-1"
+                  style={{ 
+                    backgroundColor: 'var(--bg-elevated)',
+                    borderColor: 'var(--border-subtle)',
+                    color: 'var(--text-main)'
+                  }}
+                  value={currentPageId || ''}
+                  onChange={(e) => loadPageById(e.target.value)}
+                  disabled={isInteractivePreview}
+                  onMouseEnter={(e) => {
+                    if (!isInteractivePreview) {
+                      e.currentTarget.style.borderColor = 'var(--gold)'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isInteractivePreview) {
+                      e.currentTarget.style.borderColor = 'var(--border-subtle)'
+                    }
+                  }}
+                >
+                  {pages
+                    .sort((a, b) => a.orderIndex - b.orderIndex)
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.path === '/' ? 'Home' : p.path}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
             <div 
               className="rounded-full p-1 inline-flex gap-1"
               style={{ backgroundColor: 'var(--bg-elevated)' }}
@@ -2427,6 +4304,86 @@ export default function EditorPage() {
               }}
             >
               <RotateCcw className="h-4 w-4" />
+            </button>
+
+            {/* Toggle Modo Preview Interativo */}
+            <button
+              type="button"
+              onClick={() => {
+                const newValue = !isInteractivePreview
+                console.log('[EDITOR] Botão modo clique clicado', { 
+                  oldValue: isInteractivePreview, 
+                  newValue,
+                  iframeExists: !!iframeRef.current,
+                  contentWindowExists: !!iframeRef.current?.contentWindow
+                })
+                setIsInteractivePreview(newValue)
+                // Notifica o iframe sobre a mudança
+                if (iframeRef.current?.contentWindow) {
+                  console.log('[EDITOR] Enviando NCRY_SET_INTERACTIVE_PREVIEW para iframe', { enabled: newValue })
+                  iframeRef.current.contentWindow.postMessage(
+                    {
+                      type: 'NCRY_SET_INTERACTIVE_PREVIEW',
+                      payload: { enabled: newValue },
+                    },
+                    '*'
+                  )
+                } else {
+                  console.error('[EDITOR] ERRO: iframe ou contentWindow não existe!', {
+                    iframeRef: !!iframeRef.current,
+                    contentWindow: !!iframeRef.current?.contentWindow
+                  })
+                }
+                // Se desativando preview, limpa seleção
+                if (!newValue && selectedElement) {
+                  // Mantém seleção ao voltar para modo edição
+                } else if (newValue) {
+                  // Ao ativar preview, esconde toolbar e limpa seleção visual
+                  setSelectedElement(null)
+                }
+              }}
+              className={clsx(
+                'inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-150',
+                isInteractivePreview ? 'border' : 'border'
+              )}
+              style={
+                isInteractivePreview
+                  ? {
+                      borderColor: 'var(--gold)',
+                      backgroundColor: 'var(--gold)',
+                      color: '#000000'
+                    }
+                  : {
+                      borderColor: 'var(--border-subtle)',
+                      backgroundColor: 'var(--bg-elevated)',
+                      color: 'var(--text-muted)'
+                    }
+              }
+              onMouseEnter={(e) => {
+                if (!isInteractivePreview) {
+                  e.currentTarget.style.borderColor = 'var(--gold)'
+                  e.currentTarget.style.color = 'var(--text-main)'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isInteractivePreview) {
+                  e.currentTarget.style.borderColor = 'var(--border-subtle)'
+                  e.currentTarget.style.color = 'var(--text-muted)'
+                }
+              }}
+              title={isInteractivePreview ? 'Desativar modo preview interativo' : 'Ativar modo preview interativo (cliques funcionam como na página real)'}
+            >
+              {isInteractivePreview ? (
+                <>
+                  <Hand className="h-4 w-4" />
+                  <span>Modo clique ON</span>
+                </>
+              ) : (
+                <>
+                  <MousePointerClick className="h-4 w-4" />
+                  <span>Modo clique OFF</span>
+                </>
+              )}
             </button>
           </div>
 
@@ -2787,27 +4744,6 @@ export default function EditorPage() {
                 ) : (
                   <div className="editor-prop-card">
                     {activeTab === 'geral' ? renderGeneralTab() : renderLayoutTab()}
-
-                    {/* Botão remover elemento */}
-                    <button
-                      onClick={handleRemoveElement}
-                      className="w-full mt-4 py-2.5 rounded-lg border transition-all duration-150 text-xs font-medium"
-                      style={{
-                        borderColor: '#7F1D1D',
-                        backgroundColor: '#3F1518',
-                        color: '#FCA5A5'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#4A1B20'
-                        e.currentTarget.style.borderColor = '#F87171'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = '#3F1518'
-                        e.currentTarget.style.borderColor = '#7F1D1D'
-                      }}
-                    >
-                      Remover elemento
-                    </button>
                   </div>
                 )}
               </div>
@@ -2872,30 +4808,48 @@ export default function EditorPage() {
             {/* UTMify Pixel */}
             <div className="space-y-2">
               <label className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                UTMify Pixel ID{' '}
+                UTMify Pixel Script{' '}
                 {tracking.utmifyPixel?.found ? (
                   <span style={{ color: 'var(--success)' }}>(encontrado)</span>
                 ) : (
                   <span style={{ color: 'var(--text-soft)' }}>(não encontrado no código)</span>
                 )}
               </label>
-              <input
-                className="editor-input text-sm"
-                value={tracking.utmifyPixel?.pixelId || ''}
-                onChange={(e) =>
+              <textarea
+                className="editor-input text-sm font-mono"
+                value={tracking.utmifyPixel?.script || ''}
+                onChange={(e) => {
+                  const newScript = e.target.value
+                  // Extrai o pixelId automaticamente do script editado
+                  let extractedPixelId: string | null = null
+                  if (newScript) {
+                    const pixelIdMatch = newScript.match(/window\.pixelId\s*=\s*["']([^"']+)["']/i)
+                    if (pixelIdMatch && pixelIdMatch[1]) {
+                      extractedPixelId = pixelIdMatch[1]
+                    }
+                  }
+                  
                   setTracking((prev) =>
                     prev
                       ? {
                           ...prev,
                           utmifyPixel: {
-                            found: true,
-                            pixelId: e.target.value,
+                            found: !!newScript,
+                            pixelId: extractedPixelId,
+                            script: newScript,
                           },
                         }
                       : prev
                   )
-                }
-                placeholder="ex: 68dfd7c9b20d2dfa8bab49d7"
+                }}
+                placeholder="<script>window.pixelId = &quot;...&quot; ...</script>"
+                rows={6}
+                style={{
+                  resize: 'vertical',
+                  fontFamily: 'monospace',
+                  fontSize: '12px',
+                  lineHeight: '1.5',
+                }}
               />
             </div>
 

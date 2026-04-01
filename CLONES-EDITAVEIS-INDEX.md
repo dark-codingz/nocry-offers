@@ -193,3 +193,10 @@ CLONES-EDITAVEIS-TESTE.md       # Guia de testes
 
 **Comece pelo [Setup Rápido](CLONES-EDITAVEIS-SETUP.md) →**
 
+
+
+
+
+
+
+

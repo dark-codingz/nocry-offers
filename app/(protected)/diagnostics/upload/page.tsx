@@ -2,6 +2,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 import { getServerClient } from '@/lib/supabase/server'
+import { STORAGE_BUCKET } from '@/lib/constants'
 import { redirect } from 'next/navigation'
 
 export default async function UploadDiagnosticsPage() {
@@ -25,7 +26,7 @@ export default async function UploadDiagnosticsPage() {
   let bucketInfo: any = null
 
   if (buckets) {
-    bucketInfo = buckets.find((b: any) => b.name === 'offers-files')
+    bucketInfo = buckets.find((b: any) => b.name === STORAGE_BUCKET)
     bucketExists = !!bucketInfo
   }
 
@@ -35,7 +36,7 @@ export default async function UploadDiagnosticsPage() {
 
   try {
     const { data: files, error: listError } = await supabase.storage
-      .from('offers-files')
+      .from(STORAGE_BUCKET)
       .list('', { limit: 1 })
 
     if (!listError) {
@@ -87,7 +88,7 @@ export default async function UploadDiagnosticsPage() {
         ) : (
           <div className="space-y-4">
             <div>
-              <p className="mb-2 font-semibold">Bucket &quot;offers-files&quot;:</p>
+              <p className="mb-2 font-semibold">Bucket &quot;{STORAGE_BUCKET}&quot;:</p>
               {bucketExists ? (
                 <div className="space-y-2 rounded bg-green-50 p-4">
                   <div className="flex items-center gap-2">
@@ -111,7 +112,7 @@ export default async function UploadDiagnosticsPage() {
               ) : (
                 <div className="rounded bg-yellow-50 p-4">
                   <p className="text-sm font-semibold text-yellow-800">
-                    ⚠️ Bucket &quot;offers-files&quot; não encontrado
+                    ⚠️ Bucket &quot;{STORAGE_BUCKET}&quot; não encontrado
                   </p>
                   <p className="mt-2 text-sm text-yellow-700">
                     Crie o bucket no Supabase Dashboard → Storage
@@ -164,7 +165,7 @@ export default async function UploadDiagnosticsPage() {
                   <div className="mt-4 space-y-2 text-sm text-red-700">
                     <p className="font-semibold">Solução:</p>
                     <p>
-                      Configure as políticas RLS no Supabase Dashboard → Storage → offers-files →
+                      Configure as políticas RLS no Supabase Dashboard → Storage → {STORAGE_BUCKET} →
                       Policies
                     </p>
                     <p className="mt-2 font-mono text-xs">
@@ -192,7 +193,7 @@ export default async function UploadDiagnosticsPage() {
             <ul className="ml-4 list-inside list-disc space-y-1">
               <li>Ir para Supabase Dashboard → Storage</li>
               <li>Clicar em &quot;New bucket&quot;</li>
-              <li>Nome: <code className="font-mono">offers-files</code></li>
+              <li>Nome: <code className="font-mono">{STORAGE_BUCKET}</code></li>
               <li>Marcar como <strong>Privado</strong></li>
             </ul>
           </div>
@@ -202,7 +203,7 @@ export default async function UploadDiagnosticsPage() {
           <div className="mb-4 space-y-2 rounded bg-amber-50 p-4 text-sm text-amber-800">
             <p className="font-semibold">2. Configurar Políticas RLS</p>
             <ul className="ml-4 list-inside list-disc space-y-1">
-              <li>Ir para Supabase Dashboard → Storage → offers-files → Policies</li>
+              <li>Ir para Supabase Dashboard → Storage → {STORAGE_BUCKET} → Policies</li>
               <li>Adicionar política de INSERT (upload)</li>
               <li>Adicionar política de SELECT (download)</li>
               <li>Ver instruções completas em: <code className="font-mono">DIAGNOSTICO-UPLOAD-RLS.md</code></li>

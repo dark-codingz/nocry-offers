@@ -668,3 +668,10 @@ Cenário: Imagens muito grandes em mobile
 
 Agora é possível construir, reorganizar e ajustar landing pages com controle total sobre estrutura e dimensões!
 
+
+
+
+
+
+
+

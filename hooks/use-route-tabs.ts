@@ -16,7 +16,7 @@ export const TABS: TabConfig[] = [
   { path: '/ofertas/tracking', label: 'Tracking', icon: Activity, badge: 0 },
   { path: '/clone', label: 'Clone', icon: Copy, badge: 0 },
   { path: '/funilspy', label: 'Funil Spy', icon: Search, badge: 0 },
-  { path: '/finance', label: 'Finance', icon: LineChart, badge: 0, isExternal: true, externalUrl: 'https://theresnocry.com/' },
+  { path: '/finance', label: 'Finance', icon: LineChart, badge: 0, isDev: true },
   { path: '/tracking', label: 'NoCry Tracking', icon: BarChart3, badge: 0, isDev: true },
   { path: '/settings', label: 'Config', icon: Settings, badge: 0, isDev: true },
 ] as const

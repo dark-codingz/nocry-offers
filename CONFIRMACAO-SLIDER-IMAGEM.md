@@ -346,3 +346,10 @@ Largura da imagem (70%)
 
 Todas as funcionalidades solicitadas estão operacionais e testadas!
 
+
+
+
+
+
+
+

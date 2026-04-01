@@ -1,8 +1,7 @@
 'use client'
 
 import { getBrowserClient } from './supabase/client'
-
-const BUCKET = 'offers-files'
+import { STORAGE_BUCKET } from './constants'
 
 export type FileCategory =
   | 'creatives_original'
@@ -28,7 +27,7 @@ export async function uploadOfferFile(
 
   console.log('[UPLOAD_FILE_START]', { offerId, category, fileName: file.name, key })
 
-  const { data, error } = await supabase.storage.from(BUCKET).upload(key, file, {
+  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).upload(key, file, {
     cacheControl: '3600',
     upsert: false,
   })
@@ -75,7 +74,7 @@ export async function getSignedUrl(key: string, expiresIn = 3600): Promise<strin
   }
 
   const supabase = getBrowserClient()
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(key, expiresIn)
+  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(key, expiresIn)
 
   if (error) {
     console.error('Error creating signed URL:', error)
@@ -89,7 +88,7 @@ export async function deleteOfferFile(key: string): Promise<void> {
   if (!key || key.startsWith('http')) return
 
   const supabase = getBrowserClient()
-  const { error } = await supabase.storage.from(BUCKET).remove([key])
+  const { error } = await supabase.storage.from(STORAGE_BUCKET).remove([key])
 
   if (error) {
     console.error('Error deleting file:', error)

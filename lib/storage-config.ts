@@ -1,7 +1,8 @@
 /**
  * Configuração global do Storage
+ * @deprecated Use STORAGE_BUCKET from '@/lib/constants' instead
  */
-export const STORAGE_BUCKET = 'offers-files'
+export { STORAGE_BUCKET } from './constants'
 
 /**
  * Log de diagnóstico (executar uma vez no init)

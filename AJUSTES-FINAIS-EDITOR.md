@@ -398,3 +398,10 @@ nocry-clone-edited.zip
 
 O editor agora é robusto e o ZIP funciona perfeitamente offline!
 
+
+
+
+
+
+
+

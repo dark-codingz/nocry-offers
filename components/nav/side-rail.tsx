@@ -2,14 +2,11 @@
 
 import { motion, LayoutGroup } from 'framer-motion'
 import { usePathname } from 'next/navigation'
-import { Settings, HelpCircle, User } from 'lucide-react'
+import { Settings, HelpCircle, User, ChevronDown } from 'lucide-react'
 import { useRouteTabs } from '@/hooks/use-route-tabs'
 import Link from 'next/link'
 import { toast } from 'sonner'
 
-/**
- * Sidebar minimalista estilo AI dashboard - ícones em círculos, fundo preto profundo
- */
 export function SideRail() {
   const pathname = usePathname()
   const tabs = useRouteTabs()
@@ -19,27 +16,26 @@ export function SideRail() {
       <aside
         role="navigation"
         aria-label="Navegação principal"
-        className="fixed left-0 top-0 z-[40] h-[100dvh] w-20 bg-[#020204] border-r border-white/5 flex flex-col overflow-hidden"
+        className="group fixed left-0 top-0 z-50 h-[100dvh] w-[64px] hover:w-[240px] hover:shadow-[16px_0_32px_-12px_rgba(0,0,0,0.5)] bg-[#171717] border-r border-[#262626] flex flex-col overflow-hidden transition-[width] duration-300 ease-in-out"
         style={{
           maxHeight: '100dvh',
         }}
       >
-        {/* Topo: Logo "N" com glow sutil */}
-        <div className="flex items-center justify-center p-4 shrink-0">
-          <div className="relative">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#D4AF37]/20 to-[#D4AF37]/5 border border-[#D4AF37]/30 flex items-center justify-center">
-              <span className="text-lg font-bold text-[#D4AF37]" style={{ textShadow: '0 0 8px rgba(212, 175, 55, 0.3)' }}>
+        {/* Topo: Logo "N" */}
+        <div className="flex items-center gap-3 p-[16px] shrink-0 h-[64px]">
+          <div className="relative shrink-0">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#D4AF37]/20 to-[#D4AF37]/5 border border-[#D4AF37]/30 flex items-center justify-center">
+              <span className="text-sm font-bold text-[#D4AF37]" style={{ textShadow: '0 0 8px rgba(212, 175, 55, 0.3)' }}>
                 N
               </span>
             </div>
           </div>
+          <span className="font-semibold text-white tracking-wide opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-100 whitespace-nowrap">NoCry</span>
         </div>
 
-        {/* Área central: Ícones principais em círculos */}
-        <nav className="flex-1 py-4 px-3 overflow-y-auto overflow-x-hidden relative z-20 min-h-0 flex flex-col items-center gap-2">
+        {/* Área central: Ícones e Textos */}
+        <nav className="flex-1 px-3 py-2 overflow-y-auto overflow-x-hidden relative z-20 min-h-0 flex flex-col gap-1 no-scrollbar">
           {tabs.map((tab) => {
-            // Verificar se há um tab mais específico que corresponde ao pathname atual
-            // Um tab é "mais específico" se seu path é mais longo e também corresponde ao pathname
             const hasMoreSpecificMatch = tabs.some(
               (otherTab) =>
                 otherTab.path !== tab.path &&
@@ -48,15 +44,13 @@ export function SideRail() {
                 (pathname === otherTab.path || pathname.startsWith(otherTab.path + '/'))
             )
             
-            // Item está ativo se:
-            // 1. Pathname é exatamente igual ao path do tab, OU
-            // 2. Pathname começa com o path do tab (mas não é exatamente igual) E não há um tab mais específico que também corresponde
             const isActive =
               pathname === tab.path ||
               (tab.path !== '/' &&
                 pathname !== tab.path &&
                 pathname.startsWith(tab.path + '/') &&
                 !hasMoreSpecificMatch)
+                
             const Icon = tab.icon
 
             const handleClick = (e: React.MouseEvent) => {
@@ -76,46 +70,46 @@ export function SideRail() {
             }
 
             const content = (
-              <motion.div
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className={`relative w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+              <div
+                className={`relative flex items-center gap-3 w-full px-[11px] py-[10px] rounded-lg transition-colors duration-200 ease-out border ${
                   isActive
-                    ? 'bg-gradient-to-br from-[#D4AF37]/30 to-[#D4AF37]/10 border border-[#D4AF37]/40'
-                    : 'bg-black/40 border border-white/5 hover:bg-white/5 hover:border-white/10'
+                    ? 'bg-[#202020] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] border-white/5'
+                    : 'text-[#A1A1AA] hover:bg-[#202020] hover:text-white border-transparent'
                 }`}
                 title={tab.label}
               >
                 <Icon
-                  className={`h-5 w-5 ${
-                    isActive ? 'text-[#D4AF37]' : 'text-white/60'
-                  } transition-colors`}
+                  className={`h-[18px] w-[18px] shrink-0 transition-colors duration-200 ${
+                    isActive ? 'text-white' : 'text-[#A1A1AA] group-hover:text-white'
+                  }`}
                   strokeWidth={isActive ? 2.5 : 2}
                 />
+                <span className={`text-sm truncate opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-100 whitespace-nowrap ${isActive ? 'font-medium' : 'font-normal'}`}>
+                  {tab.label}
+                </span>
+                
                 {tab.badge !== null && tab.badge !== 0 && (
-                  <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    className={`absolute -top-1 -right-1 ${
-                      tab.badge === '•'
-                        ? 'h-2 w-2 rounded-full bg-[#D4AF37]'
-                        : 'flex h-4 w-4 items-center justify-center rounded-full bg-[#D4AF37] text-[10px] font-bold text-black'
-                    }`}
-                  >
-                    {typeof tab.badge === 'number' && tab.badge}
-                  </motion.div>
+                  <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-100">
+                    <div
+                      className={`flex items-center justify-center ${
+                        tab.badge === '•'
+                          ? 'h-2 w-2 rounded-full bg-[#D4AF37]'
+                          : 'h-5 px-1.5 min-w-[20px] rounded bg-[#2A2A2A] text-[11px] font-medium text-white'
+                      }`}
+                    >
+                      {typeof tab.badge === 'number' && tab.badge}
+                    </div>
+                  </div>
                 )}
+                
                 {tab.isDev && (tab.badge === null || tab.badge === 0) && (
-                  <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-[8px] font-bold text-white"
-                    title="Em desenvolvimento"
+                  <div
+                    className="ml-auto flex h-4 px-1.5 items-center justify-center rounded bg-orange-500/10 text-[10px] font-medium text-orange-500 opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-100"
                   >
-                    D
-                  </motion.div>
+                    DEV
+                  </div>
                 )}
-              </motion.div>
+              </div>
             )
 
             if (tab.isExternal || tab.isDev) {
@@ -124,47 +118,44 @@ export function SideRail() {
                   key={tab.path}
                   href={tab.isExternal ? tab.externalUrl : '#'}
                   onClick={handleClick}
-                  className="block"
+                  className="block cursor-pointer outline-none mb-0.5 relative group/item"
                 >
                   {content}
+                  
+                  {/* Tooltip p/ Sidebar Fechada apenas se houver necessidade (Fundo: #202020 texto branco) */}
+                  <div className="hidden absolute left-14 top-1/2 -translate-y-1/2 px-2 py-1 bg-[#202020] text-white text-xs rounded border border-white/5 opacity-0 group-hover/item:opacity-100 group-hover:hidden whitespace-nowrap z-50 pointer-events-none transition-opacity">
+                    {tab.label}
+                  </div>
                 </a>
               )
             }
 
             return (
-              <Link key={tab.path} href={tab.path} className="block">
+              <Link key={tab.path} href={tab.path} className="block outline-none mb-0.5 relative group/item">
                 {content}
+                
+                <div className="hidden absolute left-14 top-1/2 -translate-y-1/2 px-2 py-1 bg-[#202020] text-white text-xs rounded border border-white/5 opacity-0 group-hover/item:opacity-100 group-hover:hidden whitespace-nowrap z-50 pointer-events-none transition-opacity">
+                  {tab.label}
+                </div>
               </Link>
             )
           })}
         </nav>
 
-        {/* Rodapé: Configurações, ajuda, perfil */}
-        <div className="py-4 px-3 shrink-0 flex flex-col items-center gap-2 border-t border-white/5">
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="w-12 h-12 rounded-full bg-black/40 border border-white/5 hover:bg-white/5 hover:border-white/10 flex items-center justify-center transition-all"
-            title="Configurações"
-          >
-            <Settings className="h-5 w-5 text-white/60" strokeWidth={2} />
-          </motion.button>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="w-12 h-12 rounded-full bg-black/40 border border-white/5 hover:bg-white/5 hover:border-white/10 flex items-center justify-center transition-all"
-            title="Ajuda"
-          >
-            <HelpCircle className="h-5 w-5 text-white/60" strokeWidth={2} />
-          </motion.button>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="w-12 h-12 rounded-full bg-black/40 border border-white/5 hover:bg-white/5 hover:border-white/10 flex items-center justify-center transition-all"
-            title="Perfil"
-          >
-            <User className="h-5 w-5 text-white/60" strokeWidth={2} />
-          </motion.button>
+        {/* Rodapé: Perfil de usuário */}
+        <div className="p-3 shrink-0 border-t border-[#262626]">
+          <div className="flex items-center gap-3 p-[7px] group-hover:p-2 rounded-xl group-hover:bg-[#202020] group-hover:hover:bg-[#2A2A2A] transition-all duration-200 cursor-pointer border border-transparent group-hover:hover:border-white/5 overflow-hidden">
+            <div className="h-9 w-9 shrink-0 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center shadow-inner">
+              <span className="text-sm font-medium text-white">DM</span>
+            </div>
+            
+            <div className="flex-1 min-w-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-100 whitespace-nowrap">
+              <p className="text-sm font-medium text-white truncate">Dark M</p>
+              <p className="text-xs text-[#71717A] truncate">dark@nocry.io</p>
+            </div>
+            
+            <ChevronDown className="h-4 w-4 text-[#71717A] shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-100" />
+          </div>
         </div>
       </aside>
     </LayoutGroup>

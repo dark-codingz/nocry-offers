@@ -641,3 +641,10 @@ const [marginBottomPx, setMarginBottomPx] = useState<number>(0)
 
 Editor visual agora tem drag & drop intuitivo, controle de alinhamento e espaçamento preciso!
 
+
+
+
+
+
+
+
