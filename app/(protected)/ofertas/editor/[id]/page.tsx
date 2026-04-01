@@ -574,7 +574,7 @@ export default function EditorPage() {
 
         // Se for imagem ou placeholder, captura src
         if ((tagName.toLowerCase() === 'img' || 
-             (tagName.toLowerCase() === 'div' && classList?.some(c => c.includes('nocry-image-placeholder')))) && 
+             (tagName.toLowerCase() === 'div' && classList?.some((c: string) => c.includes('nocry-image-placeholder')))) && 
             attributes?.src !== undefined) {
           setImageUrl(attributes.src || '')
         }
