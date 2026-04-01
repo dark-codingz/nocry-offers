@@ -23,9 +23,13 @@ export function filenameForPath(path: string): string {
   // Remove query/fragment se vierem grudados (só por segurança)
   const qIndex = path.indexOf('?')
   const hashIndex = path.indexOf('#')
-  const cutIndex = [qIndex, hashIndex].filter((i) => i > -1).sort((a, b) => a - b)[0]
-  if (cutIndex > -1) {
-    path = path.slice(0, cutIndex)
+  const validIndices = [qIndex, hashIndex].filter((i) => i > -1).sort((a, b) => a - b)
+  
+  if (validIndices.length > 0) {
+    const cutIndex = validIndices[0]
+    if (cutIndex !== undefined && cutIndex > -1) {
+      path = path.slice(0, cutIndex)
+    }
   }
 
   // Garantir que comece com "/"
@@ -94,8 +98,8 @@ export function rewriteInternalLinks(
       // Isso captura links como "/shop/681aaff4852ac923b1bcabfb/cart.html"
       const segments = path.split('/').filter(Boolean)
       if (segments.length > 0) {
-        const slugBase = segments[0]
-        const lastSegment = segments[segments.length - 1]
+        const slugBase = segments[0]!
+        const lastSegment = segments[segments.length - 1]!
         const escapedPath = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
         const escapedOrigin = origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
         
@@ -115,7 +119,7 @@ export function rewriteInternalLinks(
         // Ex: /shop/681aaff4852ac923b1bcabfb/cart.html -> shop-681aaff4852ac923b1bcabfb-cart.html
         let lastSegmentClean = lastSegment
         if (lastSegmentClean.includes('.')) {
-          lastSegmentClean = lastSegmentClean.split('.')[0] // Remove extensão se houver
+          lastSegmentClean = lastSegmentClean.split('.')[0]! // Remove extensão se houver
         }
         
         const pathWithIdRegex = new RegExp(
@@ -176,11 +180,11 @@ export function rewriteLegacyHtmlAssetLinks(html: string, pages: ExportPage[]): 
     // path "/shop/681aaff4852ac923b1bcabfb/cart.html" -> slugBase "shop", lastSegment "cart"
     const segments = path.split('/').filter(Boolean)
     if (segments.length === 0) continue
-    const slugBase = segments[0] // "product", "shop", etc.
+    const slugBase = segments[0]! // "product", "shop", etc.
     // Pegar o último segmento sem extensão (ex: "cart" de "cart.html" ou "cart")
-    let lastSegment = segments[segments.length - 1]
+    let lastSegment = segments[segments.length - 1]!
     if (lastSegment.includes('.')) {
-      lastSegment = lastSegment.split('.')[0] // Remove extensão
+      lastSegment = lastSegment.split('.')[0]! // Remove extensão
     }
 
     // Regex para detectar vários padrões de links legados:
@@ -242,11 +246,11 @@ export function rewriteFileProtocolLinks(html: string, pages: ExportPage[]): str
 
     const segments = path.split('/').filter(Boolean)
     if (segments.length === 0) continue
-    const slugBase = segments[0]
-    let lastSegment = segments[segments.length - 1]
+    const slugBase = segments[0]!
+    let lastSegment = segments[segments.length - 1]!
     // Remover extensão se houver (ex: "cart.html" -> "cart")
     if (lastSegment.includes('.')) {
-      lastSegment = lastSegment.split('.')[0]
+      lastSegment = lastSegment.split('.')[0]!
     }
 
     // Padrões para file://:
