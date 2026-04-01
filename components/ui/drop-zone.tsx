@@ -26,7 +26,7 @@ export function DropZone({
       const validFiles: File[] = []
       const maxBytes = maxSize * 1024 * 1024
 
-      Array.from(files).forEach((file) => {
+      Array.from(files).forEach((file: File) => {
         if (file.size > maxBytes) {
           toast.error(`⚠️ ${file.name} é muito grande (máx: ${maxSize}MB)`)
           return

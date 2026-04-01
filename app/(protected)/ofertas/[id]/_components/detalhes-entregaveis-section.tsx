@@ -109,7 +109,7 @@ export function DetalhesEntregaveisSection({ offerId }: DetalhesEntregaveisSecti
 
     toast.promise(
       Promise.all(
-        Array.from(files).map(async (file) => {
+        Array.from(files).map(async (file: File) => {
           try {
             // Upload para storage
             const uploadResult = await uploadToOffersFiles(`${offerId}/bonuses`, file)

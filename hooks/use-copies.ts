@@ -29,8 +29,8 @@ export function useCopies(offerId: string) {
         const stored = localStorage.getItem(MOCK_STORAGE_KEY)
         if (stored) {
           const allCopies = JSON.parse(stored) as OfferCopy[]
-          // Filtra pela oferta atual
-          setCopies(allCopies.filter(c => c.offer_id === offerId))
+          // Filtra pela oferta atual e garante que c não seja any implicito
+          setCopies(allCopies.filter((c: OfferCopy) => c.offer_id === offerId))
         }
       } catch (e) {
         console.error('Erro ao ler copies locais', e)
@@ -74,7 +74,7 @@ export function useCopies(offerId: string) {
   }
 
   const updateCopy = async (id: string, updates: Partial<OfferCopy>) => {
-    const updated = copies.map(c => 
+    const updated = copies.map((c: OfferCopy) => 
       c.id === id 
         ? { ...c, ...updates, updated_at: new Date().toISOString() } 
         : c
@@ -84,13 +84,13 @@ export function useCopies(offerId: string) {
   }
 
   const deleteCopy = async (id: string) => {
-    const updated = copies.filter(c => c.id !== id)
+    const updated = copies.filter((c: OfferCopy) => c.id !== id)
     setCopies(updated)
     saveToStorage(updated)
   }
 
   const duplicateCopy = async (id: string) => {
-    const copyToDuplicate = copies.find(c => c.id === id)
+    const copyToDuplicate = copies.find((c: OfferCopy) => c.id === id)
     if (!copyToDuplicate) return
 
     const newCopy: OfferCopy = {

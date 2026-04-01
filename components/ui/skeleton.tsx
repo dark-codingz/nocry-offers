@@ -31,7 +31,7 @@ export function OfferDetailsSkeleton() {
 export function ListSkeleton({ count = 3 }: { count?: number }) {
   return (
     <div className="space-y-4">
-      {Array.from({ length: count }).map((_, i) => (
+      {Array.from({ length: count }).map((_: any, i: number) => (
         <div key={i} className="rounded-lg border p-4">
           <Skeleton className="mb-2 h-6 w-3/4" />
           <Skeleton className="h-4 w-1/2" />

@@ -197,10 +197,11 @@ export async function POST(
     try {
       const body = await request.json().catch(() => null)
       if (body && Array.isArray(body.editedPages)) {
-        editedPagesFromRequest = body.editedPages
+        const pages = body.editedPages as Array<{ id: string; html: string }>
+        editedPagesFromRequest = pages
         console.log('[ZIP] HTML editado recebido do frontend:', {
-          pagesCount: editedPagesFromRequest.length,
-          firstPageHasSupabase: editedPagesFromRequest[0]?.html?.includes('supabase.co') || false,
+          pagesCount: pages.length,
+          firstPageHasSupabase: pages[0]?.html?.includes('supabase.co') || false,
         })
       }
     } catch {
@@ -239,7 +240,7 @@ export async function POST(
 
       // Encontrou páginas pelo clone_group_id
       cloneGroupId = id
-      rootPage = pagesByGroup.find((p: any) => p.is_root) || pagesByGroup[0]
+      rootPage = (pagesByGroup as any[]).find((p: any) => p.is_root) || pagesByGroup[0]
     }
 
     if (!rootPage || !rootPage.original_url) {
@@ -316,7 +317,7 @@ export async function POST(
     })
 
     // Log para debug
-    console.log('[ZIP] Páginas para exportar:', exportPages.map(p => ({ path: p.path, filename: p.filename })))
+    console.log('[ZIP] Páginas para exportar:', exportPages.map((p: ExportPage) => ({ path: p.path, filename: p.filename })))
 
     // 6. Criar diretório de trabalho
     const jobId = `edit-${rootPage.id}-${Date.now()}-${randomId()}`

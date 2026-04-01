@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Executar clonagem completa (com assets)
-    let result
+    let result: any
     try {
       result = await runCloneJob(url)
     } catch (error) {
@@ -105,11 +105,15 @@ export async function POST(request: NextRequest) {
       order_index: 0,
     }
 
-    let { data: rootPage, error: insertError } = await supabase
+    // 7. Inserir página root no banco
+    const rootInsertResult = await supabase
       .from('cloned_pages')
       .insert(insertData)
       .select('id')
       .single()
+
+    let rootPage: any = rootInsertResult.data
+    let insertError = rootInsertResult.error
 
     // Se falhou por causa das colunas novas não existirem, tenta sem elas (fallback)
     if (insertError && (insertError.message?.includes('editable_html') || insertError.message?.includes('is_spa_framework') || insertError.message?.includes('clone_group_id'))) {
@@ -198,7 +202,7 @@ export async function POST(request: NextRequest) {
 
         // Inserir subpágina no banco (usando path normalizado)
         const subpageInsertData: any = {
-          user_id: user.id,
+          user_id: user?.id,
           original_url: pageUrl,
           html: subpageHtmlToSave,
           css: null,

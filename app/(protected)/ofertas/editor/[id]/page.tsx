@@ -679,16 +679,16 @@ export default function EditorPage() {
     if (!sel) return 'other'
     const tag = sel.tagName.toLowerCase()
     const role = (sel.role || '').toLowerCase()
-    const classes = (sel.classList || []).map((c) => c.toLowerCase())
+    const classes = (sel.classList || []).map((c: string) => c.toLowerCase())
 
     if (tag === 'img') return 'image'
     // Placeholder de imagem também é tratado como image
-    if (tag === 'div' && classes.some(c => c.includes('nocry-image-placeholder'))) return 'image'
+    if (tag === 'div' && classes.some((c: string) => c.includes('nocry-image-placeholder'))) return 'image'
     if (/^h[1-6]$/.test(tag)) return 'heading'
 
     // Detectar badges primeiro (antes de botões)
     if (
-      classes.some((c) => c.includes('badge') || c.includes('pill') || c.includes('tag'))
+      classes.some((c: string) => c.includes('badge') || c.includes('pill') || c.includes('tag'))
     ) {
       return 'badge'
     }
@@ -944,7 +944,7 @@ export default function EditorPage() {
   function generateSelector(sel: SelectedElement | null): string {
     if (!sel) return ''
     const tag = sel.tagName.toLowerCase()
-    const classes = (sel.classList || []).filter((c) => c.trim()).join('.')
+    const classes = (sel.classList || []).filter((c: string) => c.trim()).join('.')
     return classes ? `${tag}.${classes}` : tag
   }
 
@@ -1005,7 +1005,7 @@ export default function EditorPage() {
             Cores rápidas
           </p>
           <div className="grid grid-cols-10 gap-1.5">
-            {presetColors.map((color) => (
+            {presetColors.map((color: string) => (
               <button
                 key={color}
                 type="button"
@@ -2084,7 +2084,7 @@ export default function EditorPage() {
           
           if (newScriptElement) {
             // Copia atributos do novo script
-            Array.from(newScriptElement.attributes).forEach(attr => {
+            Array.from(newScriptElement.attributes).forEach((attr: any) => {
               s.setAttribute(attr.name, attr.value)
             })
             // Substitui o conteúdo
@@ -2111,7 +2111,7 @@ export default function EditorPage() {
         if (newScriptElement) {
           // Clona o elemento para poder inserir no documento
           const clonedScript = doc.createElement('script')
-          Array.from(newScriptElement.attributes).forEach(attr => {
+          Array.from(newScriptElement.attributes).forEach((attr: any) => {
             clonedScript.setAttribute(attr.name, attr.value)
           })
           clonedScript.textContent = newScriptElement.textContent
@@ -2268,7 +2268,7 @@ export default function EditorPage() {
         pagesCount: editedPages.length,
         currentPageId: currentPageIdToUse,
         currentPageHasSupabase: newHtml.includes('supabase.co'),
-        allPagesIds: editedPages.map(p => p.id),
+        allPagesIds: editedPages.map((p: any) => p.id),
       })
       
       const zipRes = await fetch(`/api/clones/${downloadId}/zip`, {
@@ -2442,7 +2442,7 @@ export default function EditorPage() {
           if (!el) return false;
           const tag = el.tagName.toLowerCase();
           const role = (el.getAttribute('role') || '').toLowerCase();
-          const classes = Array.from(el.classList || []).map((c) => c.toLowerCase());
+          const classes = Array.from(el.classList || []).map((c: string) => c.toLowerCase());
 
           if (tag === 'button') return true;
           if (role === 'button') return true;
