@@ -331,7 +331,7 @@ export function MediaLibraryModal({
                         `}
                         style={{
                           borderColor: isSelected ? 'var(--gold)' : 'var(--border-subtle)',
-                          ringColor: isSelected ? 'var(--gold)' : 'transparent',
+                          boxShadow: isSelected ? '0 0 0 2px var(--gold)' : 'none',
                         }}
                       >
                         <img
