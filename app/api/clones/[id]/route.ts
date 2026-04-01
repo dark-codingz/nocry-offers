@@ -27,12 +27,15 @@ export async function GET(
     }
 
     // 2. Buscar clone e obter clone_group_id
-    let { data: clone, error: fetchError } = await supabase
+    const mainQuery = await supabase
       .from('cloned_pages')
       .select('id, clone_group_id, original_url, html, editable_html, is_spa_framework, path, is_root, order_index, css, js, created_at, updated_at')
       .eq('id', id)
       .eq('user_id', user.id)
       .single()
+
+    let clone: any = mainQuery.data
+    let fetchError = mainQuery.error
 
     // Se falhou por causa das colunas novas, tenta buscar sem elas
     if (fetchError && (fetchError.message?.includes('editable_html') || fetchError.message?.includes('is_spa_framework') || fetchError.message?.includes('clone_group_id'))) {
