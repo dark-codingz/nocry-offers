@@ -2,7 +2,8 @@
  * Configuração global do Storage
  * @deprecated Use STORAGE_BUCKET from '@/lib/constants' instead
  */
-export { STORAGE_BUCKET } from './constants'
+import { STORAGE_BUCKET } from './constants'
+export { STORAGE_BUCKET }
 
 /**
  * Log de diagnóstico (executar uma vez no init)

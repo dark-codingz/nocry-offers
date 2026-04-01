@@ -451,9 +451,15 @@ export default function EditorPage() {
             // relativo: tirar query/hash
             const qIndex = href.indexOf('?')
             const hashIndex = href.indexOf('#')
-            const cutIndex = [qIndex, hashIndex].filter((i) => i > -1).sort((a, b) => a - b)[0]
-            if (cutIndex > -1) {
-              path = href.slice(0, cutIndex)
+            const validIndices = [qIndex, hashIndex].filter((i) => i > -1).sort((a, b) => a - b)
+            
+            if (validIndices.length > 0) {
+              const cutIndex = validIndices[0]
+              if (cutIndex !== undefined && cutIndex > -1) {
+                path = href.slice(0, cutIndex)
+              } else {
+                path = href
+              }
             } else {
               path = href
             }
@@ -698,7 +704,7 @@ export default function EditorPage() {
     if (
       tag === 'a' &&
       (role === 'button' ||
-        classes.some((c) => c.includes('btn') || c.includes('button') || c.includes('cta')))
+        classes.some((c: string) => c.includes('btn') || c.includes('button') || c.includes('cta')))
     ) {
       return 'button'
     }
@@ -2424,7 +2430,7 @@ export default function EditorPage() {
           });
         }
 
-        function highlight(el) {
+        function highlight(el: HTMLElement) {
           if (!el) return;
           if (nocryIsDragging) return; // Não destacar durante drag
           if (nocryInteractivePreview === true) return; // Não destacar em modo preview
@@ -2432,13 +2438,13 @@ export default function EditorPage() {
           el.style.cursor = 'pointer';
         }
 
-        function unhighlight(el) {
+        function unhighlight(el: HTMLElement) {
           if (!el) return;
           if (nocryInteractivePreview === true) return; // Não destacar em modo preview
           el.style.outline = '';
         }
 
-        function isButtonLike(el) {
+        function isButtonLike(el: HTMLElement) {
           if (!el) return false;
           const tag = el.tagName.toLowerCase();
           const role = (el.getAttribute('role') || '').toLowerCase();
@@ -2448,14 +2454,14 @@ export default function EditorPage() {
           if (role === 'button') return true;
           if (
             tag === 'a' &&
-            classes.some((c) =>
+            classes.some((c: string) =>
               c.includes('btn') || c.includes('button') || c.includes('cta')
             )
           ) {
             return true;
           }
           if (
-            classes.some((c) =>
+            classes.some((c: string) =>
               c.includes('badge') || c.includes('pill') || c.includes('tag')
             )
           ) {
