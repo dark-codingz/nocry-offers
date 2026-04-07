@@ -25,7 +25,7 @@ export default async function ProtectedLayout({
 
   return (
     <div 
-      className="min-h-screen text-white w-full max-w-full overflow-x-hidden bg-[#171717]"
+      className="min-h-screen text-white w-full max-w-full overflow-x-clip bg-[#171717]"
     >
       <StorageDiagnostics />
       <AppNav>

@@ -30,7 +30,7 @@ export default function CopyEditorPage() {
     }
   }, [loading, copies, copyId])
 
-  // Mock Auto-save behavior
+  // Auto-save do título com debounce
   useEffect(() => {
     if (!copy || title === copy.name) return
     setIsSaving(true)
@@ -38,16 +38,29 @@ export default function CopyEditorPage() {
       updateCopy(copy.id, { name: title }).then(() => {
         setIsSaving(false)
       })
-    }, 1000)
+    }, 1500)
     return () => clearTimeout(timer)
   }, [title, copy, updateCopy])
 
-  const handleContentUpdate = (newContent: string) => {
-    if (!copy) return
+  // Auto-save do conteúdo com debounce
+  const [contentToSave, setContentToSave] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (contentToSave === null || !copy) return
+    
     setIsSaving(true)
-    updateCopy(copy.id, { content: newContent }).then(() => {
-      setTimeout(() => setIsSaving(false), 500)
-    })
+    const timer = setTimeout(() => {
+      updateCopy(copy.id, { content: contentToSave }).then(() => {
+        setIsSaving(false)
+        setContentToSave(null)
+      })
+    }, 2000) // 2 segundos de debounce para conteúdo pesado
+
+    return () => clearTimeout(timer)
+  }, [contentToSave, copy, updateCopy])
+
+  const handleContentUpdate = (newContent: string) => {
+    setContentToSave(newContent)
   }
 
   if (loading || !copy) {

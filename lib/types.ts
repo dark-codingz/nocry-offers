@@ -136,3 +136,47 @@ export interface Org {
   name: string
   created_at: string
 }
+
+// Tipos para Copys de Ofertas (Supabase)
+export type CopyType = 'Em Branco' | 'VSL' | 'Criativo' | 'Quizz'
+export type CopyStatus = 'Ideia' | 'Em escrita' | 'Pronto' | 'Validado'
+
+export interface OfferCopy {
+  id: string
+  offer_id: string
+  name: string
+  type: CopyType
+  status: CopyStatus
+  content: any // JSONB no Supabase, pode ser string HTML ou JSON do Tiptap
+  created_at: string
+  updated_at: string
+}
+
+// Mapeamentos para o Banco de Dados
+export const COPY_TYPE_MAP: Record<CopyType, string> = {
+  'Em Branco': 'blank',
+  'VSL': 'vsl',
+  'Criativo': 'creative',
+  'Quizz': 'quizz',
+}
+
+export const REVERSE_COPY_TYPE_MAP: Record<string, CopyType> = {
+  blank: 'Em Branco',
+  vsl: 'VSL',
+  creative: 'Criativo',
+  quizz: 'Quizz',
+}
+
+export const COPY_STATUS_MAP: Record<CopyStatus, string> = {
+  'Ideia': 'idea',
+  'Em escrita': 'writing',
+  'Pronto': 'ready',
+  'Validado': 'validated',
+}
+
+export const REVERSE_COPY_STATUS_MAP: Record<string, CopyStatus> = {
+  idea: 'Ideia',
+  writing: 'Em escrita',
+  ready: 'Pronto',
+  validated: 'Validado',
+}

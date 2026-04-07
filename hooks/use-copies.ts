@@ -1,109 +1,183 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { 
+  OfferCopy, 
+  CopyType, 
+  CopyStatus, 
+  COPY_TYPE_MAP, 
+  REVERSE_COPY_TYPE_MAP, 
+  COPY_STATUS_MAP, 
+  REVERSE_COPY_STATUS_MAP 
+} from '@/lib/types'
 
-export type CopyType = 'Em Branco' | 'VSL' | 'Criativo' | 'Quizz'
-export type CopyStatus = 'Ideia' | 'Em escrita' | 'Pronto' | 'Validado'
-
-export interface OfferCopy {
-  id: string
-  offer_id: string
-  name: string
-  type: CopyType
-  status: CopyStatus
-  content: string // Conteúdo HTML do Tiptap
-  created_at: string
-  updated_at: string
-}
-
-const MOCK_STORAGE_KEY = 'nocry_offer_copies'
+export type { OfferCopy, CopyType, CopyStatus }
+import { toast } from 'sonner'
 
 export function useCopies(offerId: string) {
   const [copies, setCopies] = useState<OfferCopy[]>([])
   const [loading, setLoading] = useState(true)
+  const supabase = createClient()
 
-  // Carrega copys do LocalStorage apenas para ambiente de protótipo sem backend
-  useEffect(() => {
-    const load = () => {
-      try {
-        const stored = localStorage.getItem(MOCK_STORAGE_KEY)
-        if (stored) {
-          const allCopies = JSON.parse(stored) as OfferCopy[]
-          // Filtra pela oferta atual e garante que c não seja any implicito
-          setCopies(allCopies.filter((c: OfferCopy) => c.offer_id === offerId))
-        }
-      } catch (e) {
-        console.error('Erro ao ler copies locais', e)
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
-  }, [offerId])
-
-  const saveToStorage = (newCopies: OfferCopy[]) => {
+  const fetchCopies = useCallback(async () => {
     try {
-      const stored = localStorage.getItem(MOCK_STORAGE_KEY)
-      let allCopies: OfferCopy[] = stored ? JSON.parse(stored) : []
-      
-      // Remove as antigas dessa oferta e substitui pelas novas
-      allCopies = allCopies.filter(c => c.offer_id !== offerId).concat(newCopies)
-      
-      localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(allCopies))
-    } catch (e) {
-      console.error('Erro ao salvar no storage', e)
+      setLoading(true)
+      const { data, error } = await supabase
+        .from('offer_copies')
+        .select('*')
+        .eq('offer_id', offerId)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+
+      if (data) {
+        const mappedCopies: OfferCopy[] = data.map(item => ({
+          id: item.id,
+          offer_id: item.offer_id,
+          name: item.name,
+          type: REVERSE_COPY_TYPE_MAP[item.copy_type] || 'Em Branco',
+          status: REVERSE_COPY_STATUS_MAP[item.status] || 'Ideia',
+          content: item.content,
+          created_at: item.created_at,
+          updated_at: item.updated_at
+        }))
+        setCopies(mappedCopies)
+      }
+    } catch (e: any) {
+      console.error('Erro ao buscar copies:', e.message || e)
+      toast.error('Erro ao carregar as copys: ' + (e.message || ''))
+    } finally {
+      setLoading(false)
     }
-  }
+  }, [offerId, supabase])
+
+  useEffect(() => {
+    fetchCopies()
+  }, [fetchCopies])
 
   const createCopy = async (data: { name: string; type: CopyType }) => {
-    const newCopy: OfferCopy = {
-      id: crypto.randomUUID(),
-      offer_id: offerId,
-      name: data.name,
-      type: data.type,
-      status: 'Ideia',
-      content: data.type === 'VSL' ? '<h1>Título da VSL</h1><p>Comece sua redline aqui...</p>' : '',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    }
+    try {
+      const newId = crypto.randomUUID()
+      const dbPayload = {
+        id: newId,
+        offer_id: offerId,
+        name: data.name,
+        copy_type: COPY_TYPE_MAP[data.type as CopyType] || 'blank',
+        status: 'idea',
+        content: data.type === 'VSL' ? '<h1>Título da VSL</h1><p>Comece sua redline aqui...</p>' : '',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
 
-    const updated = [newCopy, ...copies]
-    setCopies(updated)
-    saveToStorage(updated)
-    return newCopy
+      const { error } = await supabase
+        .from('offer_copies')
+        .insert([dbPayload])
+
+      if (error) throw error
+
+      const newCopy: OfferCopy = {
+        id: newId,
+        offer_id: offerId,
+        name: data.name,
+        type: data.type,
+        status: 'Ideia',
+        content: dbPayload.content,
+        created_at: dbPayload.created_at,
+        updated_at: dbPayload.updated_at
+      }
+
+      setCopies(prev => [newCopy, ...prev])
+      toast.success('Copy enviada para o banco!')
+      return newCopy
+    } catch (e: any) {
+      console.error('Erro ao criar copy:', e.message || e)
+      toast.error(e.message || 'Não foi possível criar a copy no servidor.')
+      throw e
+    }
   }
 
   const updateCopy = async (id: string, updates: Partial<OfferCopy>) => {
-    const updated = copies.map((c: OfferCopy) => 
-      c.id === id 
-        ? { ...c, ...updates, updated_at: new Date().toISOString() } 
-        : c
-    )
-    setCopies(updated)
-    saveToStorage(updated)
+    try {
+      // Mapeia atualizações parciais se necessário
+      const dbUpdates: any = {}
+      if (updates.name) dbUpdates.name = updates.name
+      if (updates.type) dbUpdates.copy_type = COPY_TYPE_MAP[updates.type as CopyType]
+      if (updates.status) dbUpdates.status = COPY_STATUS_MAP[updates.status as CopyStatus]
+      if (updates.content !== undefined) dbUpdates.content = updates.content
+      
+      dbUpdates.updated_at = new Date().toISOString()
+
+      const { error } = await supabase
+        .from('offer_copies')
+        .update(dbUpdates)
+        .eq('id', id)
+
+      if (error) throw error
+
+      setCopies(prev => prev.map(c => 
+        c.id === id ? { ...c, ...updates, updated_at: dbUpdates.updated_at } : c
+      ))
+    } catch (e: any) {
+      console.error('Erro ao atualizar copy:', e.message || e)
+      toast.error('Erro ao sincronizar atualização: ' + (e.message || ''))
+    }
   }
 
   const deleteCopy = async (id: string) => {
-    const updated = copies.filter((c: OfferCopy) => c.id !== id)
-    setCopies(updated)
-    saveToStorage(updated)
+    try {
+      const { error } = await supabase
+        .from('offer_copies')
+        .delete()
+        .eq('id', id)
+
+      if (error) throw error
+
+      setCopies(prev => prev.filter(c => c.id !== id))
+      toast.success('Copy removida.')
+    } catch (e: any) {
+      console.error('Erro ao deletar copy:', e.message || e)
+      toast.error('Erro ao excluir no servidor: ' + (e.message || ''))
+    }
   }
 
   const duplicateCopy = async (id: string) => {
-    const copyToDuplicate = copies.find((c: OfferCopy) => c.id === id)
-    if (!copyToDuplicate) return
+    try {
+      const copyToDuplicate = copies.find(c => c.id === id)
+      if (!copyToDuplicate) return
 
-    const newCopy: OfferCopy = {
-      ...copyToDuplicate,
-      id: crypto.randomUUID(),
-      name: `${copyToDuplicate.name} (Cópia)`,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      const newId = crypto.randomUUID()
+      const dbPayload = {
+        id: newId,
+        offer_id: offerId,
+        name: `${copyToDuplicate.name} (Cópia)`,
+        copy_type: COPY_TYPE_MAP[copyToDuplicate.type as CopyType] || 'blank',
+        status: COPY_STATUS_MAP[copyToDuplicate.status as CopyStatus] || 'idea',
+        content: copyToDuplicate.content,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+
+      const { error } = await supabase
+        .from('offer_copies')
+        .insert([dbPayload])
+
+      if (error) throw error
+
+      const newCopy: OfferCopy = {
+        ...copyToDuplicate,
+        id: newId,
+        name: dbPayload.name,
+        created_at: dbPayload.created_at,
+        updated_at: dbPayload.updated_at
+      }
+
+      setCopies(prev => [newCopy, ...prev])
+      toast.success('Cópia duplicada no servidor!')
+    } catch (e: any) {
+      console.error('Erro ao duplicar copy:', e.message || e)
+      toast.error('Houve um erro ao duplicar no banco: ' + (e.message || ''))
     }
-
-    const updated = [newCopy, ...copies]
-    setCopies(updated)
-    saveToStorage(updated)
   }
 
   return {
@@ -112,6 +186,7 @@ export function useCopies(offerId: string) {
     createCopy,
     updateCopy,
     deleteCopy,
-    duplicateCopy
+    duplicateCopy,
+    refresh: fetchCopies
   }
 }

@@ -70,7 +70,7 @@ const MenuBar = ({ editor }: { editor: any }) => {
   const activeClass = "bg-[#D4AF37]/10 text-[#D4AF37] hover:bg-[#D4AF37]/20 hover:text-[#D4AF37]"
 
   return (
-    <div className="sticky top-[64px] z-20 w-full bg-[#171717]/95 backdrop-blur-md border-b border-[#2A2A2A] px-4 py-2 shadow-sm flex items-center justify-center">
+    <div className="sticky top-0 sm:top-[64px] z-20 w-full bg-[#171717]/95 backdrop-blur-md border-b border-[#2A2A2A] px-4 py-2 shadow-sm flex items-center justify-center">
       <div className="w-full max-w-[800px] flex items-center flex-wrap gap-2">
         
         {/* Dropdown de Tamanho de Fonte */}
@@ -228,7 +228,7 @@ export function CopyEditor({ title, onTitleChange, initialContent, onUpdate }: C
     immediatelyRender: false,
     editorProps: {
       attributes: {
-        class: 'prose prose-invert prose-p:text-inherit prose-p:text-[17px] prose-p:leading-[1.7] prose-headings:text-inherit prose-h1:text-[32px] prose-h2:text-[24px] prose-a:text-[#D4AF37] focus:outline-none max-w-none w-full min-h-[500px] cursor-text',
+        class: 'prose prose-invert prose-p:text-inherit prose-p:text-[17px] prose-p:leading-normal prose-headings:text-inherit prose-h1:text-[32px] prose-h2:text-[24px] prose-a:text-[#D4AF37] focus:outline-none max-w-none w-full min-h-[500px] cursor-text',
       },
     },
     onUpdate: ({ editor }) => {
@@ -268,7 +268,8 @@ export function CopyEditor({ title, onTitleChange, initialContent, onUpdate }: C
               font-style: italic;
             }
             .ProseMirror p {
-              margin-bottom: 1.5em;
+              margin-top: 0;
+              margin-bottom: 0;
             }
             .ProseMirror h1, .ProseMirror h2, .ProseMirror h3 {
               margin-top: 1.5em;
@@ -279,12 +280,12 @@ export function CopyEditor({ title, onTitleChange, initialContent, onUpdate }: C
             .ProseMirror ul {
               list-style-type: disc;
               padding-left: 1.5rem;
-              margin-bottom: 1.5em;
+              margin-bottom: 0.5em;
             }
             .ProseMirror ol {
               list-style-type: decimal;
               padding-left: 1.5rem;
-              margin-bottom: 1.5em;
+              margin-bottom: 0.5em;
             }
             .ProseMirror li p {
               margin-top: 0.25em;
